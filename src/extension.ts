@@ -11,7 +11,7 @@
 
 import * as vscode from "vscode";
 
-import { CONFIG_SECTION, getConfig } from "./config";
+import { CONFIG_SECTION, getConfig, issueUrl } from "./config";
 import { createLinearClient, API_KEY_SECRET } from "./linearClient";
 import { IssueLinkProvider } from "./providers/linkProvider";
 import { IssueHoverProvider } from "./providers/hoverProvider";
@@ -26,7 +26,8 @@ import { registerCopyCommands } from "./copyCommands";
 import { registerEditCommands } from "./edit/editCommands";
 import { registerBlockerCommands } from "./edit/blockers";
 import { registerCreateCommand } from "./edit/createIssue";
-import { registerBranchActions, createAgentBridge } from "./branchActions";
+import { registerBranchActions, createAgentBridge, openInAgent } from "./branchActions";
+import { resolveOpenInAction } from "./branch/openIn";
 import { FileIssuesProvider } from "./views/fileIssuesProvider";
 import { IssueListProvider } from "./views/issueListProvider";
 import {
@@ -46,6 +47,7 @@ import {
   type BoardMoveOutcome,
 } from "./webview/boardPanel";
 import { ensureWriteAuth, hasWriteAuth } from "./writeAuth";
+import type { GitContext } from "./git/worktree";
 import type {
   AuthHeader,
   IssueId,
@@ -112,10 +114,28 @@ export function activate(context: vscode.ExtensionContext): void {
   // to a flat, newest-updated list when the config is absent/invalid.
   const getGrouping = (): ViewGroupingState => resolveGrouping(getCfg());
 
+  // Current-branch issue status bar — constructed early so the list views can
+  // read the checked-out branch's issue id for worktree-aware emphasis. Started
+  // (watcher + first render) further below.
+  const branch = new BranchStatusBar(getCfg);
+
+  // Lazily expose the current git context (the checked-out branch's issue id) so
+  // the My / Recent list views can sort the matching issue to the top when
+  // `linearLens.worktree.filter` is enabled. Reuses the branch status bar's
+  // already-derived id; never throws.
+  const getGitContext = (): GitContext => {
+    try {
+      const id = branch.current();
+      return id ? { branchIssueId: id.normalized } : {};
+    } catch {
+      return {};
+    }
+  };
+
   // Activity Bar tree views (constructed early so refreshUi can fold them in).
   const fileIssues = new FileIssuesProvider(getCfg, client);
-  const myIssues = new IssueListProvider("mine", getCfg, client);
-  const recentIssues = new IssueListProvider("recent", getCfg, client);
+  const myIssues = new IssueListProvider("mine", getCfg, client, getGitContext);
+  const recentIssues = new IssueListProvider("recent", getCfg, client, getGitContext);
   const teams = new TeamsProvider(getCfg, client, getGrouping);
   const cycle = new CycleProvider(getCfg, client, getGrouping);
 
@@ -262,8 +282,7 @@ export function activate(context: vscode.ExtensionContext): void {
   // Seed the keys for the current editor on activation.
   computeSelectionContext(getCfg());
 
-  // Current-branch issue status bar.
-  const branch = new BranchStatusBar(getCfg);
+  // Current-branch issue status bar (constructed above; start the watcher now).
   branch.start();
   context.subscriptions.push({ dispose: () => branch.dispose() });
 
@@ -295,7 +314,55 @@ export function activate(context: vscode.ExtensionContext): void {
 
   // Coding-agent bridge + branch/diff/agent command handlers (local, read-only).
   const agent = createAgentBridge(getCfg);
-  registerBranchActions(context, { getCfg, client, agent });
+  const branchDeps = { getCfg, client, agent };
+  registerBranchActions(context, branchDeps);
+
+  // `linearLens.openInTool`: the canonical "Open in Coding Tool" command (settings
+  // spec §3). Reads `openIn.tool` / `openIn.customCommand` and dispatches to the
+  // resolved action: the issue URL, a user command id, or the auto-detected coding
+  // agent (delegating to the same `openInAgent` internals the legacy alias uses).
+  // READ-ONLY — no write-auth gate. Never throws.
+  context.subscriptions.push(
+    vscode.commands.registerCommand("linearLens.openInTool", async (arg?: unknown) => {
+      try {
+        const cfg = getCfg();
+        const action = resolveOpenInAction(
+          cfg.openInTool,
+          cfg.openInCustomCommand,
+          agent.isAvailable(),
+        );
+        if (action.kind === "agent") {
+          await openInAgent(arg, branchDeps);
+          return;
+        }
+        // The "url" and "command" actions both need the issue id + canonical URL.
+        const resolved = await resolveOpenInTarget(arg, client, cfg);
+        if (!resolved) {
+          void vscode.window.showWarningMessage(
+            "Linear Lens: no Linear issue id was provided to open.",
+          );
+          return;
+        }
+        if (action.kind === "command" && action.commandId) {
+          await vscode.commands.executeCommand(action.commandId, {
+            id: resolved.id,
+            url: resolved.url,
+          });
+          return;
+        }
+        // "url" (or a "command" with no id — defensive): open the issue URL.
+        if (resolved.url) {
+          await vscode.env.openExternal(vscode.Uri.parse(resolved.url));
+          return;
+        }
+        void vscode.window.showWarningMessage(
+          `Linear Lens: could not resolve a URL for ${resolved.id}. Set a workspace slug (linearLens.workspaceSlug) to open it in Linear.`,
+        );
+      } catch {
+        // The command handler must never throw.
+      }
+    }),
+  );
 
   // V3 ticket-detail webview. A single panel is reused across opens; its action
   // handlers delegate to the same local, read-only branch/diff commands the hover
@@ -885,6 +952,42 @@ function resolveTicketId(arg: unknown, cfg: LinearLensConfig): string | undefine
   } catch {
     return undefined;
   }
+}
+
+/**
+ * Resolve the normalized issue id + canonical URL to open for the
+ * `linearLens.openInTool` command. Reuses {@link resolveTicketId} for the id
+ * (argument / tree node / cursor), then prefers the client's live canonical URL,
+ * falling back to a slug-derived URL. Returns `undefined` when no id can be
+ * resolved. Never throws.
+ *
+ * @param arg    The loosely-typed command argument.
+ * @param client The Linear API client (degrades gracefully).
+ * @param cfg    The current resolved configuration (team keys / slug).
+ */
+async function resolveOpenInTarget(
+  arg: unknown,
+  client: LinearClient,
+  cfg: LinearLensConfig,
+): Promise<{ id: string; url?: string } | undefined> {
+  const id = resolveTicketId(arg, cfg);
+  if (!id) {
+    return undefined;
+  }
+  const parsed = parseIssueId(id, { teamKeys: cfg.teamKeys });
+  let url: string | undefined;
+  if (parsed) {
+    try {
+      const meta = await client.fetchIssue(parsed);
+      url = meta?.url;
+    } catch {
+      // Fall through to the slug-derived URL.
+    }
+    if (!url && cfg.workspaceSlug) {
+      url = issueUrl(parsed, cfg.workspaceSlug);
+    }
+  }
+  return { id, url };
 }
 
 /**

@@ -202,11 +202,25 @@ All settings live under the `linearLens.*` namespace.
 | `linearLens.hover.showBranchActions` | `boolean` | `true` | Show the issue's suggested git branch name with Checkout and View Diff action links in rich hovers. |
 | `linearLens.inlineStatus.enable` | `boolean` | `true` | Show a small colored status indicator immediately after each issue reference, reflecting its live workflow state. |
 | `linearLens.inlineStatus.style` | `"dot" \| "pill"` | `"dot"` | Style of the inline status indicator: a single colored dot, or a labeled state pill. |
-| `linearLens.agent.command` | `string` | `""` | Optional command id invoked by **Open in Coding Agent**. Leave empty to auto-detect a Cursor or VS Code agent command. |
 | `linearLens.decorations.enable` | `boolean` | `true` | Visibly highlight recognized issue references in the editor (dotted underline in the link color). |
 | `linearLens.statusBar.enable` | `boolean` | `true` | Show a status bar item for the Linear issue detected in the current git branch. |
 | `linearLens.api.enable` | `boolean` | `true` | Fetch live issue metadata for richer hovers when authenticated. Acts as a master kill-switch: when off, hovers stay basic even when a key is set. |
 | `linearLens.cache.ttlSeconds` | `number` | `300` | How long (in seconds) to cache fetched issue metadata before refetching. |
+| `linearLens.edit.enable` | `boolean` | `true` | Show issue-editing actions (Edit Issue, Edit Blockers, status/assignee/labels/team/project/priority/cycle). Turn off to hide all write actions. |
+| `linearLens.create.enable` | `boolean` | `true` | Show the **Create Issue** command in the palette and view title bar. Turn off to hide the create action. |
+| `linearLens.teams.enable` | `boolean` | `true` | Show the Teams and Active Cycle views in the Linear Lens sidebar. |
+| `linearLens.teams.show` | `string[]` | `[]` | Team keys to show in the Teams view (e.g. `["ENG", "DES"]`). Empty = show all accessible teams (filtered by `teams.viewerOnly`). |
+| `linearLens.teams.viewerOnly` | `boolean` | `true` | When `teams.show` is empty, show only teams you are a member of (vs. every team in the workspace). |
+| `linearLens.board.enable` | `boolean` | `true` | Enable the team Board webview (columns by workflow state, drag a card to change its status). |
+| `linearLens.view.defaultGroupBy` | `"none" \| "status" \| "assignee" \| "priority" \| "project" \| "label"` | `"none"` | Default grouping for the issue tree views (My Issues, Assigned / Recent, Teams). |
+| `linearLens.view.defaultSortBy` | `"updated" \| "priority" \| "status" \| "created" \| "title" \| "number"` | `"updated"` | Default sort for the issue tree views. |
+| `linearLens.worktree.filter` | `"off" \| "currentRepo" \| "currentWorktree"` | `"off"` | How issue lists relate to your current git checkout. Emphasizes (sorts to top) the matching issue rather than hiding others. Useful with multiple worktrees open. |
+| `linearLens.openIn.tool` | `"auto" \| "vscode" \| "cursor" \| "linear" \| "custom"` | `"auto"` | Where **Open in Coding Tool** opens an issue. `auto` detects an editor agent; `linear` opens the issue URL; `custom` runs `openIn.customCommand`. |
+| `linearLens.openIn.customCommand` | `string` | `""` | Command id run by **Open in Coding Tool** when `openIn.tool` is `custom`. Receives `{ id, url }`. |
+| `linearLens.write.confirmDestructive` | `boolean` | `true` | Ask for confirmation before destructive write actions (removing a blocker, moving an issue to another team). |
+| `linearLens.agent.command` | `string` | `""` | Optional command id invoked by **Open in Coding Agent** (legacy; prefer `openIn.tool`). Leave empty to auto-detect a Cursor or VS Code agent command. |
+| `linearLens.debug` | `boolean` | `false` | Emit verbose diagnostic output to the Linear Lens output channel. |
+| `linearLens.copyMarkdown.includeComments` | `boolean` | `false` | Include the comment thread when copying a ticket as Markdown. |
 
 ## Commands
 
@@ -231,6 +245,7 @@ Available from the command palette (`Ctrl+Shift+P` / `Cmd+Shift+P`):
 | `linearLens.jumpToPreviousReference` | Linear Lens: Jump to Previous Reference | Move the cursor to the previous Linear reference in the file. |
 | `linearLens.revealInLinearView` | Linear Lens: Reveal in Linear View | Reveal the reference under the cursor in the "Issues in This File" view. |
 | `linearLens.copyIssueId` | Linear Lens: Copy Issue ID | Copy the normalized issue ID under the cursor to the clipboard. |
+| `linearLens.openInTool` | Linear Lens: Open in Coding Tool | Open the issue in the preferred coding tool (see `linearLens.openIn.tool`). Replaces the legacy **Open in Coding Agent** command. |
 
 ## Keyboard shortcuts
 
@@ -249,7 +264,7 @@ Linear Lens contributes a dedicated **Linear Lens** container in the Activity Ba
 - **My Issues** — issues assigned to you (requires sign-in or a personal API key).
 - **Assigned / Recent** — your recently updated issues (requires sign-in or a personal API key).
 
-Right-click an issue to open it, copy its link or ID, check out its branch, or open it in a coding agent.
+Right-click an issue to open it, copy its link or ID, check out its branch, or open it in your preferred coding tool.
 
 ## Development
 

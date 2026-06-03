@@ -20,6 +20,8 @@ import { IssueListItem, IssueListScope, LinearClient, LinearLensConfig } from ".
 import { IssueNode, LinearTreeNode } from "./issueTreeModel";
 import { toTreeItem } from "./treeItem";
 import { listLimit, viewsEnabled } from "./viewsConfig";
+import { sortIssues } from "./grouping";
+import { worktreeRelevance, type GitContext } from "../git/worktree";
 
 /** How long a fetched list stays fresh before the next `getChildren` refetches. */
 const LIST_CACHE_MS = 30_000;
@@ -54,6 +56,7 @@ export class IssueListProvider implements vscode.TreeDataProvider<LinearTreeNode
   private readonly scope: IssueListScope;
   private readonly getCfg: () => LinearLensConfig;
   private readonly client: LinearClient;
+  private readonly getGitContext: () => GitContext;
   private cache: ListCache | undefined;
   private disposed = false;
 
@@ -61,11 +64,21 @@ export class IssueListProvider implements vscode.TreeDataProvider<LinearTreeNode
    * @param scope  Which working set this view targets (`"mine"` | `"recent"`).
    * @param getCfg Accessor for the current, validated extension configuration.
    * @param client Linear API client; used to fetch the list (defensive/never-throws).
+   * @param getGitContext Optional accessor for the current git context, used to
+   *   emphasize (sort-to-top) the issue matching the checked-out branch when
+   *   `linearLens.worktree.filter` is enabled. Defaults to an empty context
+   *   (no emphasis) so the view works without git plumbing.
    */
-  constructor(scope: IssueListScope, getCfg: () => LinearLensConfig, client: LinearClient) {
+  constructor(
+    scope: IssueListScope,
+    getCfg: () => LinearLensConfig,
+    client: LinearClient,
+    getGitContext: () => GitContext = () => ({}),
+  ) {
     this.scope = scope;
     this.getCfg = getCfg;
     this.client = client;
+    this.getGitContext = getGitContext;
   }
 
   /** {@inheritDoc vscode.TreeDataProvider.getTreeItem} */
@@ -98,7 +111,8 @@ export class IssueListProvider implements vscode.TreeDataProvider<LinearTreeNode
         return [message(this.scope === "mine" ? "No issues assigned to you." : "No recent issues.")];
       }
 
-      return items.map((item): IssueNode => ({ kind: "issue", item }));
+      const ordered = this.orderItems(items, cfg);
+      return ordered.map((item): IssueNode => ({ kind: "issue", item }));
     } catch {
       // Absolute backstop — surface a node, never throw.
       return [message("Could not load Linear issues.")];
@@ -123,6 +137,44 @@ export class IssueListProvider implements vscode.TreeDataProvider<LinearTreeNode
     this.disposed = true;
     this.cache = undefined;
     this.emitter.dispose();
+  }
+
+  /**
+   * Order the loaded items for display: sort by the configured
+   * `linearLens.view.defaultSortBy`, then (when `linearLens.worktree.filter` is
+   * not `"off"`) stably move the issue matching the current branch to the top.
+   * Pure transform over a copy; never throws.
+   *
+   * @param items The freshly loaded issue summaries (not mutated).
+   * @param cfg   The current resolved configuration.
+   * @returns     A new, ordered array.
+   */
+  private orderItems(items: IssueListItem[], cfg: LinearLensConfig): IssueListItem[] {
+    // Sort by the configured key (descending for everything but title, matching
+    // the tree views' DEFAULT_SORT direction convention).
+    const dir = cfg.viewDefaultSortBy === "title" ? "asc" : "desc";
+    let ordered = sortIssues(items, { by: cfg.viewDefaultSortBy, dir });
+
+    if (cfg.worktreeFilter !== "off") {
+      try {
+        const ctx = this.getGitContext();
+        const emphasized: IssueListItem[] = [];
+        const rest: IssueListItem[] = [];
+        for (const item of ordered) {
+          if (worktreeRelevance(item, cfg.worktreeFilter, ctx).emphasize) {
+            emphasized.push(item);
+          } else {
+            rest.push(item);
+          }
+        }
+        if (emphasized.length > 0) {
+          ordered = [...emphasized, ...rest];
+        }
+      } catch {
+        // Worktree emphasis is best-effort; fall back to the sorted order.
+      }
+    }
+    return ordered;
   }
 
   /**

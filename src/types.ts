@@ -134,6 +134,8 @@ export interface LinearLensConfig {
   enableGutter: boolean;
   /** `linearLens.copyMarkdown.includeComments` — include the comment thread when copying a ticket as Markdown. */
   copyMarkdownIncludeComments: boolean;
+  /** `linearLens.edit.enable` — show the issue-editing actions (write-gated at runtime). */
+  enableEdit: boolean;
   /** `linearLens.create.enable` — show the Create Issue command (write-gated at runtime). */
   enableCreate: boolean;
   /** `linearLens.teams.enable` — show the Teams Activity Bar view. */
@@ -148,6 +150,16 @@ export interface LinearLensConfig {
   viewDefaultGroupBy: GroupByName;
   /** `linearLens.view.defaultSortBy` — default sort for the issue tree views. */
   viewDefaultSortBy: SortByName;
+  /** `linearLens.debug` — emit verbose diagnostic output to the output channel. */
+  debug: boolean;
+  /** `linearLens.worktree.filter` — how issue lists relate to the current git checkout. */
+  worktreeFilter: WorktreeFilterMode;
+  /** `linearLens.openIn.tool` — where "Open in Coding Tool" opens an issue. */
+  openInTool: OpenInTool;
+  /** `linearLens.openIn.customCommand` — command id run when `openIn.tool` is `"custom"`. */
+  openInCustomCommand: string;
+  /** `linearLens.write.confirmDestructive` — ask for confirmation before destructive write actions. */
+  confirmDestructive: boolean;
 }
 
 /** The valid `linearLens.view.defaultGroupBy` values (mirrors `views/grouping.ts`). */
@@ -167,6 +179,25 @@ export type SortByName =
   | "created"
   | "title"
   | "number";
+
+/**
+ * How issue lists relate to the current git worktree / branch.
+ * - `"off"` — no git-based filtering (default).
+ * - `"currentRepo"` — emphasize (sort to top) issues whose branch matches the
+ *   current repo's checked-out branch.
+ * - `"currentWorktree"` — additionally scope to the active worktree's branch.
+ */
+export type WorktreeFilterMode = "off" | "currentRepo" | "currentWorktree";
+
+/**
+ * Where "Open in Coding Tool" opens an issue.
+ * - `"auto"` — detect an editor agent; URL fallback.
+ * - `"vscode"` — use the detected VS Code agent command (or fall back to URL).
+ * - `"cursor"` — use the detected Cursor agent command (or fall back to URL).
+ * - `"linear"` — open the issue URL externally.
+ * - `"custom"` — run `linearLens.openIn.customCommand` with `{ id, url }`.
+ */
+export type OpenInTool = "auto" | "vscode" | "cursor" | "linear" | "custom";
 
 // ---------------------------------------------------------------------------
 // Authentication

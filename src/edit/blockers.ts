@@ -437,14 +437,17 @@ async function removeBlockerHandler(
       return;
     }
 
-    // 6. Confirm removal.
-    const confirm = await vscode.window.showWarningMessage(
-      `Remove relation: ${chosen.label}?`,
-      { modal: true },
-      "Remove",
-    );
-    if (confirm !== "Remove") {
-      return;
+    // 6. Confirm removal (a destructive action). Honors
+    //    `linearLens.write.confirmDestructive`: when false, proceed silently.
+    if (getCfg().confirmDestructive) {
+      const confirm = await vscode.window.showWarningMessage(
+        `Remove relation: ${chosen.label}?`,
+        { modal: true },
+        "Remove",
+      );
+      if (confirm !== "Remove") {
+        return;
+      }
     }
 
     // 7. Fire the mutation.

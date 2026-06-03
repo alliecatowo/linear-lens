@@ -513,6 +513,19 @@ async function runTeamFlow(target: EditTarget, deps: EditCommandDeps): Promise<v
   if (result.chosen === target.ctx.team?.id) {
     return;
   }
+  // Moving teams re-keys the issue and may reset state/cycle — a destructive
+  // change. Honors `linearLens.write.confirmDestructive`: when false, proceed
+  // silently. Never throws.
+  if (deps.getCfg().confirmDestructive) {
+    const proceed = await vscode.window.showWarningMessage(
+      `Move ${target.id.normalized} to another team? This re-keys the issue (e.g. ENG-123 → DES-45) and may reset its state/cycle.`,
+      { modal: true },
+      "Move",
+    );
+    if (proceed !== "Move") {
+      return;
+    }
+  }
   await applyUpdate(target, singleSelectToUpdate("team", result.chosen), deps);
 }
 

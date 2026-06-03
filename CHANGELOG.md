@@ -9,6 +9,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Granular per-feature enable toggles** — every major surface now has its own on/off switch:
+  `linearLens.edit.enable`, `linearLens.create.enable`, `linearLens.teams.enable`,
+  `linearLens.board.enable`. The `when:` clauses on all menus and views are reactive (no
+  window reload needed) and the runtime commands re-check the setting before acting.
+- **`linearLens.teams.show`** (string[], default `[]`) — allowlist of team keys to show in
+  the Teams view. Empty = all teams (or the viewer's teams when `teams.viewerOnly` is on).
+- **`linearLens.teams.viewerOnly`** (boolean, default `true`) — when `teams.show` is empty,
+  show only teams you are a member of (vs. every workspace team).
+- **`linearLens.view.defaultGroupBy` / `linearLens.view.defaultSortBy`** — configure the
+  default grouping and sort order for the issue tree views without opening the view menu.
+- **`linearLens.worktree.filter`** (`"off" | "currentRepo" | "currentWorktree"`, default
+  `"off"`) — how issue lists relate to the current git checkout. When set to `currentRepo`
+  or `currentWorktree`, the issue matching the checked-out branch is sorted to the top of
+  the list. Issues are never hidden — the behavior is sort-emphasis only.
+- **`linearLens.openIn.tool`** (`"auto" | "vscode" | "cursor" | "linear" | "custom"`,
+  default `"auto"`) — controls where **Open in Coding Tool** opens an issue. `auto` reuses
+  the existing agent auto-detect; `linear` always opens the issue URL in the browser;
+  `custom` runs the command id in `linearLens.openIn.customCommand`.
+- **`linearLens.openIn.customCommand`** (string, default `""`) — VS Code command id run by
+  **Open in Coding Tool** when `openIn.tool` is `custom`. Receives `{ id, url }`.
+- **`linearLens.write.confirmDestructive`** (boolean, default `true`) — when enabled, a
+  confirmation dialog is shown before destructive write actions (removing a blocker relation,
+  moving an issue to another team).
+- **`linearLens.debug`** (boolean, default `false`) — emit verbose diagnostic output to the
+  Linear Lens output channel.
+- **`linearLens.openInTool` command** — "Open in Coding Tool" replaces the legacy
+  `linearLens.openInAgent` command (which is kept registered as a back-compat alias so
+  existing menus and hover links continue to work).
+
 - **`linearLens.hover.showAvatars` / `linearLens.hover.showLabels` /
   `linearLens.hover.showBranchActions`** settings (all default `true`) are now contributed
   in `package.json` and honored by the hover renderer, so each rich-hover section can be

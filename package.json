@@ -135,6 +135,11 @@
         "category": "Linear Lens"
       },
       {
+        "command": "linearLens.openInTool",
+        "title": "Open in Coding Tool",
+        "category": "Linear Lens"
+      },
+      {
         "command": "linearLens.openTicket",
         "title": "Open Issue Detail",
         "category": "Linear Lens",
@@ -443,7 +448,7 @@
           "group": "2_git@1"
         },
         {
-          "command": "linearLens.openInAgent",
+          "command": "linearLens.openInTool",
           "when": "viewItem == linearIssue",
           "group": "2_git@2"
         },
@@ -753,6 +758,55 @@
           ],
           "default": "updated",
           "description": "Default sort for the issue tree views (My Issues, Assigned / Recent, Teams)."
+        },
+        "linearLens.debug": {
+          "type": "boolean",
+          "default": false,
+          "description": "Emit verbose diagnostic output to the Linear Lens output channel. Useful when troubleshooting configuration or unexpected behavior."
+        },
+        "linearLens.worktree.filter": {
+          "type": "string",
+          "enum": [
+            "off",
+            "currentRepo",
+            "currentWorktree"
+          ],
+          "enumDescriptions": [
+            "No git-based filtering.",
+            "Emphasize issues relevant to the current repository / branch.",
+            "Emphasize issues relevant to the current worktree's checked-out branch."
+          ],
+          "default": "off",
+          "markdownDescription": "How issue lists relate to your current git checkout. Emphasizes (sorts to top) matching issues rather than hiding others. `currentWorktree` is useful when you have multiple git worktrees open."
+        },
+        "linearLens.openIn.tool": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "vscode",
+            "cursor",
+            "linear",
+            "custom"
+          ],
+          "enumDescriptions": [
+            "Auto-detect a coding agent (Cursor, Copilot Chat, etc.); open the issue URL when none is found.",
+            "Use the detected VS Code agent command; open the issue URL as fallback.",
+            "Use the detected Cursor agent command; open the issue URL as fallback.",
+            "Always open the issue URL in the system browser.",
+            "Run the command id set in `linearLens.openIn.customCommand`, passing `{ id, url }`."
+          ],
+          "default": "auto",
+          "markdownDescription": "Where **Open in Coding Tool** opens an issue. `auto` detects an editor agent (Cursor / Copilot Chat); `linear` opens the issue URL; `custom` runs `#linearLens.openIn.customCommand#`."
+        },
+        "linearLens.openIn.customCommand": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Command id run by **Open in Coding Tool** when `#linearLens.openIn.tool#` is `custom`. The command receives `{ id, url }` where `id` is the normalized issue identifier and `url` is the canonical Linear URL."
+        },
+        "linearLens.write.confirmDestructive": {
+          "type": "boolean",
+          "default": true,
+          "description": "Ask for confirmation before destructive write actions (removing a blocker relation, moving an issue to another team). Turn off to proceed silently."
         }
       }
     }
