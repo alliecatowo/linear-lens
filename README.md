@@ -203,7 +203,6 @@ All settings live under the `linearLens.*` namespace.
 | `linearLens.inlineStatus.enable` | `boolean` | `true` | Show a small colored status indicator immediately after each issue reference, reflecting its live workflow state. |
 | `linearLens.inlineStatus.style` | `"dot" \| "pill"` | `"dot"` | Style of the inline status indicator: a single colored dot, or a labeled state pill. |
 | `linearLens.agent.command` | `string` | `""` | Optional command id invoked by **Open in Coding Agent**. Leave empty to auto-detect a Cursor or VS Code agent command. |
-| `linearLens.debug` | `boolean` | `false` | Log Linear Lens diagnostics (GraphQL errors, auth state) to the **Linear Lens** output channel. Tokens and issue bodies are never logged. |
 | `linearLens.decorations.enable` | `boolean` | `true` | Visibly highlight recognized issue references in the editor (dotted underline in the link color). |
 | `linearLens.statusBar.enable` | `boolean` | `true` | Show a status bar item for the Linear issue detected in the current git branch. |
 | `linearLens.api.enable` | `boolean` | `true` | Fetch live issue metadata for richer hovers when authenticated. Acts as a master kill-switch: when off, hovers stay basic even when a key is set. |
@@ -225,6 +224,32 @@ Available from the command palette (`Ctrl+Shift+P` / `Cmd+Shift+P`):
 | `linearLens.showAuthStatus` | Linear Lens: Show Authentication Status | Show whether Linear Connect is installed, your current sign-in state, and whether a personal API key is set. |
 | `linearLens.setApiKey` | Linear Lens: Set Personal API Key | Store a Linear personal API key in VS Code SecretStorage as an alternative to Linear Connect sign-in. |
 | `linearLens.clearApiKey` | Linear Lens: Clear Personal API Key | Remove the stored personal API key. |
+| `linearLens.searchIssues` | Linear Lens: Go to Linear Issue… | Fuzzy-search your issues (or open one by ID) and jump to it. |
+| `linearLens.openTicket` | Linear Lens: Open Issue Detail | Open the in-editor issue detail panel for the reference under the cursor (or a typed ID). |
+| `linearLens.refreshViews` | Linear Lens: Refresh Linear Views | Re-fetch the Activity Bar issue views. |
+| `linearLens.jumpToNextReference` | Linear Lens: Jump to Next Reference | Move the cursor to the next Linear reference in the file. |
+| `linearLens.jumpToPreviousReference` | Linear Lens: Jump to Previous Reference | Move the cursor to the previous Linear reference in the file. |
+| `linearLens.revealInLinearView` | Linear Lens: Reveal in Linear View | Reveal the reference under the cursor in the "Issues in This File" view. |
+| `linearLens.copyIssueId` | Linear Lens: Copy Issue ID | Copy the normalized issue ID under the cursor to the clipboard. |
+
+## Keyboard shortcuts
+
+| Command | Windows / Linux | macOS | When |
+|---|---|---|---|
+| Open Issue… | `Ctrl+Alt+L` | `Cmd+Alt+L` | Editor focused |
+| Go to Linear Issue… | `Ctrl+Alt+F` | `Cmd+Alt+F` | Always |
+| Jump to Next Reference | `Ctrl+Alt+]` | `Cmd+Alt+]` | Editor focused, file has references |
+| Jump to Previous Reference | `Ctrl+Alt+[` | `Cmd+Alt+[` | Editor focused, file has references |
+
+## Activity Bar views
+
+Linear Lens contributes a dedicated **Linear Lens** container in the Activity Bar with three views:
+
+- **Issues in This File** — every Linear reference in the active editor, with a state dot when known. Click to jump to the line.
+- **My Issues** — issues assigned to you (requires sign-in or a personal API key).
+- **Assigned / Recent** — your recently updated issues (requires sign-in or a personal API key).
+
+Right-click an issue to open it, copy its link or ID, check out its branch, or open it in a coding agent.
 
 ## Development
 

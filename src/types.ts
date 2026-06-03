@@ -108,6 +108,12 @@ export interface LinearLensConfig {
   enableLinks: boolean;
   /** `linearLens.hover.enable` — toggle hovers. */
   enableHover: boolean;
+  /** `linearLens.hover.showAvatars` — show assignee/subscriber avatars in rich hovers. */
+  hoverShowAvatars: boolean;
+  /** `linearLens.hover.showLabels` — show colored label chips in rich hovers. */
+  hoverShowLabels: boolean;
+  /** `linearLens.hover.showBranchActions` — show the branch name + Checkout/View diff links. */
+  hoverShowBranchActions: boolean;
   /** `linearLens.decorations.enable` — toggle the in-editor highlight. */
   enableDecorations: boolean;
   /** `linearLens.statusBar.enable` — toggle the branch status bar item. */

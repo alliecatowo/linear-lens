@@ -250,14 +250,19 @@
           "group": "linearLens@2"
         },
         {
-          "command": "linearLens.copyIssueId",
+          "command": "linearLens.copyIssueLink",
           "when": "editorTextFocus && linearLens.refUnderCursor",
           "group": "linearLens@3"
         },
         {
-          "command": "linearLens.revealInLinearView",
+          "command": "linearLens.copyIssueId",
           "when": "editorTextFocus && linearLens.refUnderCursor",
           "group": "linearLens@4"
+        },
+        {
+          "command": "linearLens.revealInLinearView",
+          "when": "editorTextFocus && linearLens.refUnderCursor",
+          "group": "linearLens@5"
         }
       ]
     },
@@ -356,6 +361,21 @@
           "type": "boolean",
           "default": true,
           "description": "Show hover cards for issue references."
+        },
+        "linearLens.hover.showAvatars": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show stacked assignee and subscriber avatars in rich hovers. Falls back to a plain text name when the avatar URL is unavailable."
+        },
+        "linearLens.hover.showLabels": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show issue labels (with colored dots) in rich hovers."
+        },
+        "linearLens.hover.showBranchActions": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show the issue's suggested git branch name with Checkout and View Diff action links in rich hovers."
         },
         "linearLens.decorations.enable": {
           "type": "boolean",

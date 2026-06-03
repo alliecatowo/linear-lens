@@ -164,7 +164,9 @@ export async function goToIssue(
   client: LinearClient,
 ): Promise<void> {
   try {
-    const limit = DEFAULT_LIMIT;
+    // Honor `linearLens.views.recent.limit` (which the setting's description says
+    // governs the search view too), falling back to the default when unset.
+    const limit = getCfg().viewsRecentLimit || DEFAULT_LIMIT;
     const isAuthed = client.hasAuth();
 
     const qp = vscode.window.createQuickPick<IssuePickItem>();

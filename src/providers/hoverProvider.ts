@@ -24,8 +24,8 @@ const DOT_PX = 10;
  * a later build phase; the markdown links are emitted regardless and become live
  * once the commands exist (and while {@link vscode.MarkdownString.isTrusted} is set).
  */
-const COMMAND_CHECKOUT_BRANCH = "linearLens.checkoutIssueBranch";
-const COMMAND_VIEW_BRANCH_DIFF = "linearLens.viewIssueBranchDiff";
+const COMMAND_CHECKOUT_BRANCH = "linearLens.checkoutBranch";
+const COMMAND_VIEW_BRANCH_DIFF = "linearLens.openBranchDiff";
 
 /** Command opening the V3 ticket-detail webview for an issue id. */
 const COMMAND_OPEN_TICKET = "linearLens.openTicket";
@@ -194,16 +194,18 @@ export class IssueHoverProvider implements vscode.HoverProvider {
     }
 
     // 3. People row: stacked assignee + collaborator avatars (GitHub-style).
-    this.appendPeopleRow(md, meta);
+    if (cfg.hoverShowAvatars) {
+      this.appendPeopleRow(md, meta);
+    }
 
     // 4. Labels row: each as a colored dot name chip.
-    if (meta.labels.length > 0) {
+    if (cfg.hoverShowLabels && meta.labels.length > 0) {
       const chips = meta.labels.map((label) => labelChip(label)).join("  ");
       md.appendMarkdown(chips + "\n\n");
     }
 
     // 5. Branch row: the git branch with Checkout / View diff action links.
-    if (meta.branchName) {
+    if (cfg.hoverShowBranchActions && meta.branchName) {
       const args = encodeCommandArg({ id, branchName: meta.branchName });
       const checkout = `[Checkout branch](command:${COMMAND_CHECKOUT_BRANCH}?${args})`;
       const diff = `[View diff](command:${COMMAND_VIEW_BRANCH_DIFF}?${args})`;

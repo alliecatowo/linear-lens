@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`linearLens.hover.showAvatars` / `linearLens.hover.showLabels` /
+  `linearLens.hover.showBranchActions`** settings (all default `true`) are now contributed
+  in `package.json` and honored by the hover renderer, so each rich-hover section can be
+  toggled independently. These were previously documented but not wired up.
+
+### Fixed
+
+- **Rich-hover branch actions now work.** The hover's **Checkout branch** / **View diff**
+  links pointed at non-existent command ids (`linearLens.checkoutIssueBranch` /
+  `linearLens.viewIssueBranchDiff`); they now invoke the registered
+  `linearLens.checkoutBranch` / `linearLens.openBranchDiff` commands.
+- **Personal API key set/clear now updates the views immediately.** Setting or clearing a
+  key re-publishes the `linearLens.authed` context key, so the sign-in welcome view, the
+  view-title Sign in/out actions, and the issue lists refresh without a window reload.
+- **Sign-out and API-key changes now show confirmation toasts and refresh the tree views**,
+  matching sign-in.
+- **"Go to Linear Issue" honors `linearLens.views.recent.limit`** for its seed/search result
+  count, as the setting description states.
+- **Editor right-click menu** now offers **Copy Issue Link**, and **Open Issue** /
+  **Copy Issue Link** resolve the reference under the cursor instead of always prompting.
+
 ## [1.1.0] — Elevated hovers + inline status
 
 ### Added
@@ -33,11 +56,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   issue's suggested git branch name shown in backticks, with Checkout and View Diff command
   links. Branch names containing `/`, `#`, and `?` are correctly encoded in command URIs.
 - **Open in Coding Agent** action (`linearLens.agent.command`) — an optional command id or
-  auto-detected Cursor/VS Code agent command; when available, an "Open in `<agent>`" link
-  appears in the hover action row.
-- **Debug output channel** (`linearLens.debug`, default `false`) — logs GraphQL error
-  messages (operation name + message only; never tokens or issue bodies) to the
-  **Linear Lens** output channel, making the silent empty-hover failure mode diagnosable.
+  auto-detected Cursor/VS Code agent command, exposed via the **Open in Coding Agent**
+  command and the issue tree's context menu.
 - **Sign in via Linear Connect** — authenticate with your Linear account by consuming
   Linear's official *Linear Connect* extension (`linear.linear-connect`). No OAuth app to
   register, no client secret, no hosted redirect. Run **Linear Lens: Sign in to Linear**;

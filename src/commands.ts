@@ -144,6 +144,22 @@ export function registerCommands(context: vscode.ExtensionContext, deps: Command
     views.recent.refresh();
   };
 
+  /**
+   * Re-publish the `linearLens.authed` context key from the client's current auth
+   * state. The session-change listener in extension.ts covers OAuth sign-in/out,
+   * but a personal-API-key set/clear fires no session event — so these commands
+   * update the key directly, keeping viewsWelcome / view-title menus in sync.
+   */
+  const setAuthedContext = (): void => {
+    let authed = false;
+    try {
+      authed = client.hasAuth();
+    } catch {
+      authed = false;
+    }
+    void vscode.commands.executeCommand("setContext", "linearLens.authed", authed);
+  };
+
   const configureWorkspace = vscode.commands.registerCommand("linearLens.configureWorkspace", async () => {
     const cfg = getCfg();
     const value = await vscode.window.showInputBox({
@@ -186,6 +202,18 @@ export function registerCommands(context: vscode.ExtensionContext, deps: Command
       }
     }
 
+    // No usable arg (e.g. editor context menu): open the reference under the
+    // cursor so the command matches the menu's `refUnderCursor` guard.
+    const editor = vscode.window.activeTextEditor;
+    if (editor) {
+      const offset = editor.document.offsetAt(editor.selection.active);
+      const ref = refUnderCursor(editor.document, offset, cfg);
+      if (ref) {
+        await openIssueUrl(ref.issue, cfg);
+        return;
+      }
+    }
+
     const input = await vscode.window.showInputBox({
       title: "Linear Lens: Open Issue",
       prompt: "Enter a Linear issue id to open.",
@@ -214,7 +242,18 @@ export function registerCommands(context: vscode.ExtensionContext, deps: Command
       return;
     }
 
-    const input = fromArg?.id ?? (await vscode.window.showInputBox({
+    // No arg id (e.g. editor context menu): fall back to the reference under the
+    // cursor so the command matches the menu's `refUnderCursor` guard.
+    let cursorId: string | undefined;
+    if (!fromArg?.id) {
+      const editor = vscode.window.activeTextEditor;
+      if (editor) {
+        const offset = editor.document.offsetAt(editor.selection.active);
+        cursorId = refUnderCursor(editor.document, offset, cfg)?.issue.normalized;
+      }
+    }
+
+    const input = fromArg?.id ?? cursorId ?? (await vscode.window.showInputBox({
       title: "Linear Lens: Copy Issue Link",
       prompt: "Enter a Linear issue id to copy a link for.",
       placeHolder: "ENG-123",
@@ -266,7 +305,9 @@ export function registerCommands(context: vscode.ExtensionContext, deps: Command
     const session = await signInToLinear();
     if (session) {
       await client.refreshAuth();
+      setAuthedContext();
       refreshUi();
+      refreshViewsAll();
       void vscode.window.showInformationMessage(`Linear Lens: signed in to Linear as ${session.account.label}.`);
     }
   });
@@ -274,7 +315,10 @@ export function registerCommands(context: vscode.ExtensionContext, deps: Command
   const signOut = vscode.commands.registerCommand("linearLens.signOut", async () => {
     await signOutOfLinear();
     await client.refreshAuth();
+    setAuthedContext();
     refreshUi();
+    refreshViewsAll();
+    void vscode.window.showInformationMessage("Linear Lens: signed out of Linear.");
   });
 
   const showAuthStatus = vscode.commands.registerCommand("linearLens.showAuthStatus", async () => {
@@ -351,7 +395,9 @@ export function registerCommands(context: vscode.ExtensionContext, deps: Command
     }
     await secrets.store(API_KEY_SECRET, trimmed);
     await client.refreshAuth();
+    setAuthedContext();
     refreshUi();
+    refreshViewsAll();
     void vscode.window.showInformationMessage("Linear Lens: Linear API key saved.");
 
     const cfg = getCfg();
@@ -373,6 +419,7 @@ export function registerCommands(context: vscode.ExtensionContext, deps: Command
   const clearApiKey = vscode.commands.registerCommand("linearLens.clearApiKey", async () => {
     await secrets.delete(API_KEY_SECRET);
     await client.refreshAuth();
+    setAuthedContext();
     refreshUi();
     refreshViewsAll();
     void vscode.window.showInformationMessage("Linear Lens: Linear API key cleared.");
