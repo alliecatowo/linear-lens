@@ -25,14 +25,37 @@ import { registerCommands } from "./commands";
 import { registerCopyCommands } from "./copyCommands";
 import { registerEditCommands } from "./edit/editCommands";
 import { registerBlockerCommands } from "./edit/blockers";
+import { registerCreateCommand } from "./edit/createIssue";
 import { registerBranchActions, createAgentBridge } from "./branchActions";
 import { FileIssuesProvider } from "./views/fileIssuesProvider";
 import { IssueListProvider } from "./views/issueListProvider";
+import {
+  TeamsProvider,
+  CycleProvider,
+  type ViewGroupingState,
+} from "./views/teamsProvider";
+import { DEFAULT_SORT, type GroupBy, type IssueSort, type SortBy } from "./views/grouping";
 import type { LinearTreeNode } from "./views/issueTreeModel";
 import { getLinearOAuthHeader } from "./auth";
 import { parseIssueId, scanText } from "./parser";
 import { TicketPanel } from "./webview/ticketPanel";
-import type { AuthHeader, IssueId, IssueMetadata, LinearLensConfig, TicketDetail } from "./types";
+import {
+  BoardPanel,
+  type BoardCard,
+  type BoardData,
+  type BoardMoveOutcome,
+} from "./webview/boardPanel";
+import { ensureWriteAuth, hasWriteAuth } from "./writeAuth";
+import type {
+  AuthHeader,
+  IssueId,
+  IssueListItem,
+  IssueMetadata,
+  LinearClient,
+  LinearLensConfig,
+  TeamOption,
+  TicketDetail,
+} from "./types";
 
 /** Custom context key: whether a Linear credential is currently available. */
 const CONTEXT_AUTHED = "linearLens.authed";
@@ -83,10 +106,18 @@ export function activate(context: vscode.ExtensionContext): void {
 
   const client = createLinearClient(getCfg, resolveAuth);
 
+  // Active grouping/sort for the team + cycle trees. Until the saved-view store
+  // lands, this resolves the per-workspace defaults from configuration
+  // (`linearLens.view.defaultGroupBy` / `defaultSortBy`); the providers fall back
+  // to a flat, newest-updated list when the config is absent/invalid.
+  const getGrouping = (): ViewGroupingState => resolveGrouping(getCfg());
+
   // Activity Bar tree views (constructed early so refreshUi can fold them in).
   const fileIssues = new FileIssuesProvider(getCfg, client);
   const myIssues = new IssueListProvider("mine", getCfg, client);
   const recentIssues = new IssueListProvider("recent", getCfg, client);
+  const teams = new TeamsProvider(getCfg, client, getGrouping);
+  const cycle = new CycleProvider(getCfg, client, getGrouping);
 
   // Custom context key: reflects `client.hasAuth()` for viewsWelcome + view/title.
   const setAuthedContext = (): void => {
@@ -102,6 +133,8 @@ export function activate(context: vscode.ExtensionContext): void {
     fileIssues.refresh();
     myIssues.refresh();
     recentIssues.refresh();
+    teams.refresh();
+    cycle.refresh();
   });
 
   // In-editor highlight of references.
@@ -153,13 +186,24 @@ export function activate(context: vscode.ExtensionContext): void {
   const fileTreeView = vscode.window.createTreeView<LinearTreeNode>("linearLens.viewFile", {
     treeDataProvider: fileIssues,
   });
+  // The teams view uses `createTreeView` so `reveal`/`getParent` work; the cycle
+  // view is a flat list driven by `linearLens.openCycle` (CycleProvider.setTeam).
+  // The element type is inferred from the provider (TeamsProvider's private node
+  // union), so no explicit generic is supplied.
+  const teamsTreeView = vscode.window.createTreeView("linearLens.viewTeams", {
+    treeDataProvider: teams,
+  });
   context.subscriptions.push(
     fileTreeView,
+    teamsTreeView,
     vscode.window.registerTreeDataProvider("linearLens.viewMine", myIssues),
     vscode.window.registerTreeDataProvider("linearLens.viewRecent", recentIssues),
+    vscode.window.registerTreeDataProvider("linearLens.viewCycle", cycle),
     { dispose: () => fileIssues.dispose() },
     { dispose: () => myIssues.dispose() },
     { dispose: () => recentIssues.dispose() },
+    { dispose: () => teams.dispose() },
+    { dispose: () => cycle.dispose() },
   );
 
   context.subscriptions.push(
@@ -223,11 +267,14 @@ export function activate(context: vscode.ExtensionContext): void {
   branch.start();
   context.subscriptions.push({ dispose: () => branch.dispose() });
 
-  // Refresh all three Activity Bar views in one call.
+  // Refresh every Activity Bar view in one call (so a status change repaints the
+  // file/list trees AND the teams/cycle trees).
   const refreshViews = (): void => {
     fileIssues.refresh();
     myIssues.refresh();
     recentIssues.refresh();
+    teams.refresh();
+    cycle.refresh();
   };
 
   // Targeted cache drop after a successful write so the next hover / tree / detail
@@ -426,6 +473,112 @@ export function activate(context: vscode.ExtensionContext): void {
     invalidate,
   });
 
+  // Create-issue wizard (E3). The command re-checks write access at runtime
+  // (`ensureWriteAuth`) before any read/write, refreshes the trees on success, and
+  // offers to open the new issue. The menus hide it behind
+  // `config.linearLens.create.enable`.
+  registerCreateCommand(context, { getCfg, client, writeAuthDeps, refreshViews });
+
+  // `linearLens.refreshTeams`: title-bar refresh for the Teams + Active Cycle
+  // views (the shared `linearLens.refreshViews` only refreshes file/mine/recent).
+  context.subscriptions.push(
+    vscode.commands.registerCommand("linearLens.refreshTeams", () => {
+      teams.refresh();
+      cycle.refresh();
+    }),
+  );
+
+  // Team board webview + active-cycle view (E3). The board's drag-to-status WRITE
+  // is gated host-side (write-auth gate → `updateIssue`); no writes happen at
+  // build time (the path is exercised only by unit tests with a mocked client).
+  const board = new BoardPanel(context.extensionUri, {
+    onOpenIssue: (id) => {
+      void vscode.commands.executeCommand("linearLens.openTicket", { id });
+    },
+    onCopyAsMarkdown: (id) => {
+      void vscode.commands.executeCommand("linearLens.copyIssueMarkdown", { id });
+    },
+    onRefresh: (): Promise<BoardData | null> | null => {
+      const teamId = board.currentTeamId;
+      return teamId ? buildBoardData(client, getCfg, writeAuthDeps, teamId) : null;
+    },
+    // [WRITE-AUTH GATE] then the single gated `updateIssue`. The host resolves the
+    // issue UUID from its own render snapshot (never the webview), so a spoofed
+    // `moveCard` cannot retarget the write.
+    onMoveCard: async ({ issueUuid, toStateId }): Promise<BoardMoveOutcome> => {
+      const gate = await ensureWriteAuth(writeAuthDeps);
+      if (!gate.ok) {
+        return { ok: false };
+      }
+      const result = await client.updateIssue(issueUuid, { stateId: toStateId });
+      if (!result.ok) {
+        void vscode.window.showWarningMessage(`Linear Lens: ${result.message}`);
+        return { ok: false };
+      }
+      // Invalidate the moved issue + repaint every surface; re-fetch the board so
+      // the optimistic move is reconciled with Linear's authoritative state.
+      const moved = parseIssueId(result.value.identifier, { teamKeys: getCfg().teamKeys });
+      if (moved) {
+        invalidate(moved);
+      }
+      refreshViews();
+      const teamId = board.currentTeamId;
+      const fresh = teamId
+        ? await buildBoardData(client, getCfg, writeAuthDeps, teamId)
+        : null;
+      return { ok: true, data: fresh ?? undefined };
+    },
+  });
+  context.subscriptions.push({ dispose: () => board.dispose() });
+
+  // `linearLens.openTeamBoard`: open the board for an explicit `{ teamId }` /
+  // `{ team: { id } }` arg (tree node) or prompt for a team. Never throws.
+  context.subscriptions.push(
+    vscode.commands.registerCommand("linearLens.openTeamBoard", async (arg?: unknown) => {
+      try {
+        if (!getCfg().boardEnable) {
+          void vscode.window.showInformationMessage(
+            "Linear Lens: the team Board is disabled (linearLens.board.enable).",
+          );
+          return;
+        }
+        const team = await resolveTeamArg(client, arg);
+        if (!team) {
+          return;
+        }
+        board.showLoading();
+        const data = await buildBoardData(client, getCfg, writeAuthDeps, team.id, team);
+        if (data) {
+          board.render(data);
+        } else {
+          board.showError(
+            "Could not load the board. Sign in to Linear (or set a personal API key), then try again.",
+          );
+        }
+      } catch {
+        // The command handler must never throw.
+      }
+    }),
+    // `linearLens.openCycle`: point the Active Cycle view at a team (explicit arg
+    // or prompt) and reveal it. Never throws.
+    vscode.commands.registerCommand("linearLens.openCycle", async (arg?: unknown) => {
+      try {
+        const team = await resolveTeamArg(client, arg);
+        if (!team) {
+          return;
+        }
+        cycle.setTeam(team);
+        try {
+          await vscode.commands.executeCommand("linearLens.viewCycle.focus");
+        } catch {
+          // Focusing the view is best-effort.
+        }
+      } catch {
+        // The command handler must never throw.
+      }
+    }),
+  );
+
   // Refresh when Linear's authentication sessions change (sign in/out).
   context.subscriptions.push(
     vscode.authentication.onDidChangeSessions((e) => {
@@ -470,6 +623,226 @@ function safeHasAuth(client: { hasAuth(): boolean }): boolean {
   } catch {
     return false;
   }
+}
+
+/**
+ * Resolve the active grouping/sort for the team + cycle trees from the configured
+ * defaults (`linearLens.view.defaultGroupBy` / `defaultSortBy`). Both fields are
+ * validated by {@link getConfig}; the sort direction follows Linear's
+ * conventions (newest/highest-first) per key. Pure; never throws.
+ *
+ * @param cfg - The current resolved configuration.
+ * @returns The grouping/sort the trees apply in `getChildren`.
+ */
+function resolveGrouping(cfg: LinearLensConfig): ViewGroupingState {
+  const groupBy = cfg.viewDefaultGroupBy as GroupBy;
+  const by = cfg.viewDefaultSortBy as SortBy;
+  // Ascending only reads naturally for the title sort; everything else defaults
+  // to descending (most-recent / highest-priority first), matching DEFAULT_SORT.
+  const sort: IssueSort = by === "title" ? { by, dir: "asc" } : { by, dir: DEFAULT_SORT.dir };
+  return { groupBy, sort };
+}
+
+/**
+ * Resolve a {@link TeamOption} from a loosely-typed command argument, or prompt
+ * the user to pick one. Accepts a bare team-UUID string, a `{ teamId }` object,
+ * or a tree node's `{ team: { id } }`. Falls back to a QuickPick over the teams
+ * the client can list. Returns `undefined` when the user cancels / no team is
+ * available. Never throws.
+ *
+ * @param client - The Linear API client (degrades to an empty list).
+ * @param arg - The loosely-typed command argument.
+ * @returns The chosen team, or `undefined`.
+ */
+async function resolveTeamArg(
+  client: LinearClient,
+  arg: unknown,
+): Promise<TeamOption | undefined> {
+  try {
+    const teams = await client.listTeams();
+    const fromArg = teamFromArg(arg, teams);
+    if (fromArg) {
+      return fromArg;
+    }
+    if (teams.length === 0) {
+      void vscode.window.showWarningMessage(
+        "Linear Lens: no teams to show (sign in, set a personal API key, or check your access).",
+      );
+      return undefined;
+    }
+    if (teams.length === 1) {
+      return teams[0];
+    }
+    interface TeamItem extends vscode.QuickPickItem {
+      readonly team: TeamOption;
+    }
+    const items: TeamItem[] = teams.map((team) => ({
+      label: team.key ? `${team.key} · ${team.name}` : team.name || team.key || team.id,
+      description: team.name && team.key ? undefined : team.id,
+      team,
+    }));
+    const picked = await vscode.window.showQuickPick(items, {
+      title: "Linear Lens: Select a Team",
+      placeHolder: "Pick a team",
+      ignoreFocusOut: true,
+      matchOnDescription: true,
+    });
+    return picked?.team;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Extract a {@link TeamOption} from a command argument: a bare team-UUID string,
+ * `{ teamId }`, or a tree node's `{ team: { id, key, name } }`. Returns a matching
+ * team from `teams` when the id resolves, else (for a node carrying full team
+ * fields) the node's own team. Pure; never throws.
+ *
+ * @param arg - The loosely-typed command argument.
+ * @param teams - The known teams to match an id against.
+ * @returns The resolved team, or `undefined`.
+ */
+function teamFromArg(arg: unknown, teams: readonly TeamOption[]): TeamOption | undefined {
+  let id: string | undefined;
+  let inlineTeam: TeamOption | undefined;
+  if (typeof arg === "string") {
+    id = arg.trim() || undefined;
+  } else if (typeof arg === "object" && arg !== null) {
+    const obj = arg as { teamId?: unknown; team?: unknown };
+    if (typeof obj.teamId === "string") {
+      id = obj.teamId.trim() || undefined;
+    }
+    if (typeof obj.team === "object" && obj.team !== null) {
+      const t = obj.team as { id?: unknown; key?: unknown; name?: unknown };
+      if (typeof t.id === "string") {
+        id = id ?? (t.id.trim() || undefined);
+        inlineTeam = {
+          id: t.id,
+          key: typeof t.key === "string" ? t.key : "",
+          name: typeof t.name === "string" ? t.name : "",
+        };
+      }
+    }
+  }
+  if (id) {
+    const match = teams.find((t) => t.id === id);
+    if (match) {
+      return match;
+    }
+  }
+  return inlineTeam;
+}
+
+/**
+ * Assemble the {@link BoardData} for a team: its workflow states (columns), its
+ * issues mapped to {@link BoardCard}s, and whether a write credential is present
+ * (drives draggability). Returns `null` when the team's states/issues cannot be
+ * loaded (so the caller can show an error pane). Never throws.
+ *
+ * @param client - The Linear API client (degrades gracefully).
+ * @param getCfg - Accessor for the current configuration (list limit).
+ * @param writeAuthDeps - Deps to detect whether a write credential is present.
+ * @param teamId - The team UUID to load.
+ * @param known - The team (when already resolved) for the heading; else fetched.
+ * @returns The board payload, or `null` on failure.
+ */
+async function buildBoardData(
+  client: LinearClient,
+  getCfg: () => LinearLensConfig,
+  writeAuthDeps: { secrets: vscode.SecretStorage },
+  teamId: string,
+  known?: TeamOption,
+): Promise<BoardData | null> {
+  try {
+    const cfg = getCfg();
+    if (!cfg.enableApi || !safeHasAuth(client)) {
+      return null;
+    }
+    const limit = cfg.viewsRecentLimit;
+    // `listTeamIssues` is provided by the foundation/board client step; read it
+    // structurally so the board compiles + degrades (empty list) until it lands.
+    const listable = client as Partial<{
+      listTeamIssues: (id: string, n: number) => Promise<IssueListItem[]>;
+    }>;
+    const [states, issues] = await Promise.all([
+      client.listWorkflowStates(teamId),
+      typeof listable.listTeamIssues === "function"
+        ? listable.listTeamIssues(teamId, limit)
+        : Promise.resolve<IssueListItem[]>([]),
+    ]);
+    const canWrite = await hasWriteCredential(writeAuthDeps);
+    const team = known ?? (await client.listTeams()).find((t) => t.id === teamId);
+    return {
+      teamName: teamHeading(team, teamId),
+      teamId,
+      states,
+      cards: (issues ?? []).map(toBoardCard),
+      canWrite,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/** Whether a write credential (personal API key or write OAuth) is present. */
+async function hasWriteCredential(deps: {
+  secrets: vscode.SecretStorage;
+}): Promise<boolean> {
+  try {
+    return await hasWriteAuth(deps);
+  } catch {
+    return false;
+  }
+}
+
+/** Compose the board heading from a team ("KEY · Name") or fall back to its id. */
+function teamHeading(team: TeamOption | undefined, teamId: string): string {
+  if (!team) {
+    return teamId;
+  }
+  if (team.key && team.name) {
+    return `${team.key} · ${team.name}`;
+  }
+  return team.name || team.key || teamId;
+}
+
+/**
+ * Map a (board-extended) {@link IssueListItem} to a {@link BoardCard}. The board
+ * extra fields (`uuid`, `stateId`, priority, labels, …) are read structurally so
+ * this compiles against the shipped, narrower `IssueListItem` and is populated
+ * once the team/board list query selects them. Pure; never throws.
+ *
+ * @param item - The issue list item to project.
+ * @returns The board-facing card.
+ */
+function toBoardCard(item: IssueListItem): BoardCard {
+  const extra = item as IssueListItem & {
+    uuid?: string;
+    stateId?: string;
+    assigneeAvatarUrl?: string;
+    priority?: number;
+    priorityLabel?: string;
+    number?: number;
+    labels?: { id?: string; name?: string; color?: string }[];
+  };
+  const labels = Array.isArray(extra.labels)
+    ? extra.labels
+        .filter((l): l is { name: string; color?: string } => Boolean(l && l.name))
+        .map((l) => ({ name: l.name, color: l.color }))
+    : undefined;
+  return {
+    id: item.id,
+    uuid: extra.uuid,
+    title: item.title,
+    stateId: extra.stateId,
+    assignee: item.assignee,
+    assigneeAvatarUrl: extra.assigneeAvatarUrl,
+    priority: extra.priority,
+    priorityLabel: extra.priorityLabel,
+    number: extra.number,
+    labels,
+  };
 }
 
 /**

@@ -134,7 +134,39 @@ export interface LinearLensConfig {
   enableGutter: boolean;
   /** `linearLens.copyMarkdown.includeComments` — include the comment thread when copying a ticket as Markdown. */
   copyMarkdownIncludeComments: boolean;
+  /** `linearLens.create.enable` — show the Create Issue command (write-gated at runtime). */
+  enableCreate: boolean;
+  /** `linearLens.teams.enable` — show the Teams Activity Bar view. */
+  teamsEnable: boolean;
+  /** `linearLens.teams.show` — team KEYS to show in the Teams view; empty = all. */
+  teamsShow: string[];
+  /** `linearLens.teams.viewerOnly` — when `teams.show` is empty, show only the viewer's teams. */
+  teamsViewerOnly: boolean;
+  /** `linearLens.board.enable` — enable the team Board webview (drag-to-status). */
+  boardEnable: boolean;
+  /** `linearLens.view.defaultGroupBy` — default grouping for the issue tree views. */
+  viewDefaultGroupBy: GroupByName;
+  /** `linearLens.view.defaultSortBy` — default sort for the issue tree views. */
+  viewDefaultSortBy: SortByName;
 }
+
+/** The valid `linearLens.view.defaultGroupBy` values (mirrors `views/grouping.ts`). */
+export type GroupByName =
+  | "none"
+  | "status"
+  | "assignee"
+  | "priority"
+  | "project"
+  | "label";
+
+/** The valid `linearLens.view.defaultSortBy` values (mirrors `views/grouping.ts`). */
+export type SortByName =
+  | "updated"
+  | "priority"
+  | "status"
+  | "created"
+  | "title"
+  | "number";
 
 // ---------------------------------------------------------------------------
 // Authentication

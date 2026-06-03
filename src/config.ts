@@ -9,8 +9,10 @@
 import * as vscode from "vscode";
 import {
   DiagnosticSeverityName,
+  GroupByName,
   IssueId,
   LinearLensConfig,
+  SortByName,
   TODO_MARKERS,
 } from "./types";
 
@@ -105,6 +107,40 @@ function normalizeNonNegativeNumber(value: unknown, fallback: number): number {
   return fallback;
 }
 
+/** The valid `linearLens.view.defaultGroupBy` enum values. */
+const GROUP_BY_VALUES: readonly GroupByName[] = [
+  "none",
+  "status",
+  "assignee",
+  "priority",
+  "project",
+  "label",
+];
+
+/** The valid `linearLens.view.defaultSortBy` enum values. */
+const SORT_BY_VALUES: readonly SortByName[] = [
+  "updated",
+  "priority",
+  "status",
+  "created",
+  "title",
+  "number",
+];
+
+/** Validate an unknown value against the group-by enum, defaulting to `"none"`. */
+function normalizeGroupBy(value: unknown): GroupByName {
+  return typeof value === "string" && (GROUP_BY_VALUES as readonly string[]).includes(value)
+    ? (value as GroupByName)
+    : "none";
+}
+
+/** Validate an unknown value against the sort-by enum, defaulting to `"updated"`. */
+function normalizeSortBy(value: unknown): SortByName {
+  return typeof value === "string" && (SORT_BY_VALUES as readonly string[]).includes(value)
+    ? (value as SortByName)
+    : "updated";
+}
+
 /** Default list limit for the views when `views.recent.limit` is unset/invalid. */
 const DEFAULT_VIEWS_RECENT_LIMIT = 25;
 
@@ -161,6 +197,15 @@ export function getConfig(): LinearLensConfig {
       cfg.get("copyMarkdown.includeComments"),
       false,
     ),
+    enableCreate: toBooleanOr(cfg.get("create.enable"), true),
+    teamsEnable: toBooleanOr(cfg.get("teams.enable"), true),
+    // `teams.show` is a team-KEY allowlist; reuse the key normalizer (trims,
+    // uppercases, de-dups). Empty ⇒ show all teams (or just the viewer's).
+    teamsShow: normalizeKeyList(cfg.get("teams.show")),
+    teamsViewerOnly: toBooleanOr(cfg.get("teams.viewerOnly"), true),
+    boardEnable: toBooleanOr(cfg.get("board.enable"), true),
+    viewDefaultGroupBy: normalizeGroupBy(cfg.get("view.defaultGroupBy")),
+    viewDefaultSortBy: normalizeSortBy(cfg.get("view.defaultSortBy")),
   };
 }
 

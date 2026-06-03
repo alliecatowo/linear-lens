@@ -89,6 +89,12 @@
         "icon": "$(refresh)"
       },
       {
+        "command": "linearLens.refreshTeams",
+        "title": "Refresh Teams & Cycle",
+        "category": "Linear Lens",
+        "icon": "$(refresh)"
+      },
+      {
         "command": "linearLens.jumpToNextReference",
         "title": "Jump to Next Reference",
         "category": "Linear Lens"
@@ -144,6 +150,24 @@
         "title": "Copy as Markdown",
         "category": "Linear Lens",
         "icon": "$(markdown)"
+      },
+      {
+        "command": "linearLens.createIssue",
+        "title": "Create Issue…",
+        "category": "Linear Lens",
+        "icon": "$(add)"
+      },
+      {
+        "command": "linearLens.openTeamBoard",
+        "title": "Open Team Board",
+        "category": "Linear Lens",
+        "icon": "$(layout)"
+      },
+      {
+        "command": "linearLens.openCycle",
+        "title": "Open Active Cycle",
+        "category": "Linear Lens",
+        "icon": "$(history)"
       },
       {
         "command": "linearLens.editIssue",
@@ -229,6 +253,16 @@
         {
           "id": "linearLens.viewRecent",
           "name": "Assigned / Recent"
+        },
+        {
+          "id": "linearLens.viewTeams",
+          "name": "Teams",
+          "when": "config.linearLens.teams.enable"
+        },
+        {
+          "id": "linearLens.viewCycle",
+          "name": "Active Cycle",
+          "when": "config.linearLens.teams.enable"
         }
       ]
     },
@@ -249,6 +283,22 @@
         {
           "command": "linearLens.openInAgent",
           "when": "false"
+        },
+        {
+          "command": "linearLens.createIssue",
+          "when": "config.linearLens.create.enable"
+        },
+        {
+          "command": "linearLens.openTeamBoard",
+          "when": "config.linearLens.board.enable"
+        },
+        {
+          "command": "linearLens.openCycle",
+          "when": "config.linearLens.teams.enable"
+        },
+        {
+          "command": "linearLens.refreshTeams",
+          "when": "config.linearLens.teams.enable"
         },
         {
           "command": "linearLens.editIssue",
@@ -306,22 +356,57 @@
           "group": "navigation"
         },
         {
+          "command": "linearLens.refreshTeams",
+          "when": "view == linearLens.viewTeams || view == linearLens.viewCycle",
+          "group": "navigation"
+        },
+        {
           "command": "linearLens.searchIssues",
-          "when": "view == linearLens.viewMine || view == linearLens.viewRecent",
+          "when": "view == linearLens.viewMine || view == linearLens.viewRecent || view == linearLens.viewTeams",
+          "group": "navigation"
+        },
+        {
+          "command": "linearLens.createIssue",
+          "when": "(view == linearLens.viewMine || view == linearLens.viewRecent || view == linearLens.viewTeams) && config.linearLens.create.enable",
+          "group": "navigation"
+        },
+        {
+          "command": "linearLens.openTeamBoard",
+          "when": "view == linearLens.viewTeams && config.linearLens.board.enable",
+          "group": "navigation"
+        },
+        {
+          "command": "linearLens.openCycle",
+          "when": "view == linearLens.viewCycle",
           "group": "navigation"
         },
         {
           "command": "linearLens.signIn",
-          "when": "(view == linearLens.viewMine || view == linearLens.viewRecent) && !linearLens.authed",
+          "when": "(view == linearLens.viewMine || view == linearLens.viewRecent || view == linearLens.viewTeams) && !linearLens.authed",
           "group": "1_auth"
         },
         {
           "command": "linearLens.signOut",
-          "when": "(view == linearLens.viewMine || view == linearLens.viewRecent) && linearLens.authed",
+          "when": "(view == linearLens.viewMine || view == linearLens.viewRecent || view == linearLens.viewTeams) && linearLens.authed",
           "group": "1_auth"
         }
       ],
       "view/item/context": [
+        {
+          "command": "linearLens.openTeamBoard",
+          "when": "viewItem == linearTeam && config.linearLens.board.enable",
+          "group": "inline"
+        },
+        {
+          "command": "linearLens.openTeamBoard",
+          "when": "viewItem == linearTeam && config.linearLens.board.enable",
+          "group": "1_team@1"
+        },
+        {
+          "command": "linearLens.openCycle",
+          "when": "viewItem == linearTeam",
+          "group": "1_team@2"
+        },
         {
           "command": "linearLens.openTicket",
           "when": "viewItem == linearIssue",
@@ -425,6 +510,16 @@
       {
         "view": "linearLens.viewRecent",
         "contents": "Sign in to Linear to see recent issues.\n[Sign in to Linear](command:linearLens.signIn)",
+        "when": "!linearLens.authed"
+      },
+      {
+        "view": "linearLens.viewTeams",
+        "contents": "Sign in to Linear to browse your teams and their issues.\n[Sign in to Linear](command:linearLens.signIn)\nOr [set a personal API key](command:linearLens.setApiKey).",
+        "when": "!linearLens.authed"
+      },
+      {
+        "view": "linearLens.viewCycle",
+        "contents": "Sign in to Linear, then pick a team to view its active cycle.\n[Sign in to Linear](command:linearLens.signIn)",
         "when": "!linearLens.authed"
       },
       {
@@ -604,6 +699,60 @@
           "type": "boolean",
           "default": true,
           "markdownDescription": "Show the issue-editing actions (Edit Issue, Edit Blockers, and the status/assignee/labels/team/project/priority/cycle sub-flows) in hovers, menus, and the issue detail view. Editing always re-checks for write access (a personal API key, or a write-capable Linear sign-in) and prompts when it is missing. Turn this off to hide all write actions."
+        },
+        "linearLens.create.enable": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Show the **Create Issue** command (palette + view title-bar). Creating always re-checks for write access (a personal API key, or a write-capable Linear sign-in) and prompts when it is missing. Turn this off to hide the create action."
+        },
+        "linearLens.teams.enable": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show the Teams and Active Cycle views in the Linear Lens sidebar."
+        },
+        "linearLens.teams.show": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "markdownDescription": "Team KEYS to show in the Teams view (e.g. `[\"ENG\", \"DES\"]`). Empty = show all teams you can access (or just your teams when `#linearLens.teams.viewerOnly#` is on)."
+        },
+        "linearLens.teams.viewerOnly": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "When `#linearLens.teams.show#` is empty, show only teams you are a member of (vs. every team in the workspace)."
+        },
+        "linearLens.board.enable": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable the team Board webview (columns by workflow state, drag a card to change its status). Moving a card always re-checks for write access and prompts when it is missing."
+        },
+        "linearLens.view.defaultGroupBy": {
+          "type": "string",
+          "enum": [
+            "none",
+            "status",
+            "assignee",
+            "priority",
+            "project",
+            "label"
+          ],
+          "default": "none",
+          "description": "Default grouping for the issue tree views (My Issues, Assigned / Recent, Teams)."
+        },
+        "linearLens.view.defaultSortBy": {
+          "type": "string",
+          "enum": [
+            "updated",
+            "priority",
+            "status",
+            "created",
+            "title",
+            "number"
+          ],
+          "default": "updated",
+          "description": "Default sort for the issue tree views (My Issues, Assigned / Recent, Teams)."
         }
       }
     }
