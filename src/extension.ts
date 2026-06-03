@@ -22,6 +22,7 @@ import { InlineStatusDecorator } from "./decorations/inlineStatus";
 import { GutterDecorator } from "./decorations/gutter";
 import { LinearCommentController } from "./comments/commentController";
 import { registerCommands } from "./commands";
+import { registerCopyCommands } from "./copyCommands";
 import { registerBranchActions, createAgentBridge } from "./branchActions";
 import { FileIssuesProvider } from "./views/fileIssuesProvider";
 import { IssueListProvider } from "./views/issueListProvider";
@@ -332,6 +333,9 @@ export function activate(context: vscode.ExtensionContext): void {
     secrets: context.secrets,
     views: { file: fileIssues, mine: myIssues, recent: recentIssues, fileTreeView },
   });
+
+  // Copy-as-Markdown command (E1): read-only, no write-auth gate.
+  registerCopyCommands(context, { getCfg, client });
 
   // Refresh when Linear's authentication sessions change (sign in/out).
   context.subscriptions.push(

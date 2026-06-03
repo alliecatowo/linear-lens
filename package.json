@@ -138,6 +138,12 @@
         "command": "linearLens.inlineComments.toggle",
         "title": "Toggle Inline Comments",
         "category": "Linear Lens"
+      },
+      {
+        "command": "linearLens.copyIssueMarkdown",
+        "title": "Copy as Markdown",
+        "category": "Linear Lens",
+        "icon": "$(markdown)"
       }
     ],
     "viewsContainers": {
@@ -233,6 +239,11 @@
           "group": "1_open@4"
         },
         {
+          "command": "linearLens.copyIssueMarkdown",
+          "when": "viewItem == linearIssue",
+          "group": "1_open@5"
+        },
+        {
           "command": "linearLens.checkoutBranch",
           "when": "viewItem == linearIssue",
           "group": "2_git@1"
@@ -268,6 +279,11 @@
           "command": "linearLens.revealInLinearView",
           "when": "editorTextFocus && linearLens.refUnderCursor",
           "group": "linearLens@5"
+        },
+        {
+          "command": "linearLens.copyIssueMarkdown",
+          "when": "editorTextFocus && linearLens.refUnderCursor",
+          "group": "linearLens@7"
         }
       ]
     },
@@ -443,6 +459,11 @@
           "type": "string",
           "default": "",
           "markdownDescription": "Optional command id invoked by **Open in Coding Agent**. Leave empty to auto-detect a Cursor / VS Code agent command."
+        },
+        "linearLens.copyMarkdown.includeComments": {
+          "type": "boolean",
+          "default": false,
+          "description": "Include the comment thread when copying a ticket as Markdown."
         }
       }
     }

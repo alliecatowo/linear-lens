@@ -157,6 +157,10 @@ export function getConfig(): LinearLensConfig {
     enableViews: toBooleanOr(cfg.get("views.enable"), true),
     viewsRecentLimit: normalizeListLimit(cfg.get("views.recent.limit")),
     enableGutter: toBooleanOr(cfg.get("gutter.enable"), true),
+    copyMarkdownIncludeComments: toBooleanOr(
+      cfg.get("copyMarkdown.includeComments"),
+      false,
+    ),
   };
 }
 

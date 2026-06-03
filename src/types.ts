@@ -132,6 +132,8 @@ export interface LinearLensConfig {
   viewsRecentLimit: number;
   /** `linearLens.gutter.enable` — show a state-colored circle in the gutter beside each ref. */
   enableGutter: boolean;
+  /** `linearLens.copyMarkdown.includeComments` — include the comment thread when copying a ticket as Markdown. */
+  copyMarkdownIncludeComments: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -310,6 +312,241 @@ export interface IssueListItem {
 /** Which working set a list query targets. */
 export type IssueListScope = "mine" | "recent";
 
+// ---------------------------------------------------------------------------
+// Mutations: results + errors (write path)
+// ---------------------------------------------------------------------------
+
+/** Why a write/mutation could not complete. Drives the toast the host shows. */
+export type LinearWriteErrorKind =
+  /** No credential present at all. */
+  | "noAuth"
+  /** Credential present but lacks write (e.g. read-only OAuth). */
+  | "noWriteScope"
+  /** Linear rejected: authentication/authorization (403-ish / "access denied"). */
+  | "permission"
+  /** Linear rejected the input (bad id, missing required field). */
+  | "validation"
+  /** Target issue/entity does not exist. */
+  | "notFound"
+  /** Fetch threw / timed out / non-OK transport. */
+  | "network"
+  /** `linearLens.api.enable` is false. */
+  | "apiDisabled"
+  /** Anything else (carries Linear's message when available). */
+  | "unknown";
+
+/** Failure shape for a mutation. `message` is safe to show in a toast (no tokens). */
+export interface LinearWriteError {
+  readonly ok: false;
+  readonly kind: LinearWriteErrorKind;
+  /** Human-readable, already-sanitized message (Linear's error text or a default). */
+  readonly message: string;
+}
+
+/** Success shape for a mutation. `T` is the minimal echo the caller needs. */
+export interface LinearWriteSuccess<T> {
+  readonly ok: true;
+  readonly value: T;
+}
+
+/** Discriminated result of any mutation. Never thrown — always returned. */
+export type LinearWriteResult<T> = LinearWriteSuccess<T> | LinearWriteError;
+
+/** The minimal echo returned by issue create/update mutations. */
+export interface IssueMutationResult {
+  /** Linear's internal issue UUID (NOT the human identifier). */
+  readonly id: string;
+  /** Human identifier, e.g. "ENG-123" (may be "" if Linear omitted it). */
+  readonly identifier: string;
+  /** Canonical URL, when Linear returned one. */
+  readonly url?: string;
+}
+
+/** The echo returned by relation create/delete (blockers). */
+export interface RelationMutationResult {
+  /** The relation's id (for create; "" for delete). */
+  readonly id: string;
+}
+
+// ---------------------------------------------------------------------------
+// Picker option types (for edit + create pickers)
+// ---------------------------------------------------------------------------
+
+/** A Linear team option for pickers. */
+export interface TeamOption {
+  /** Team UUID (used as `teamId` in mutations). */
+  readonly id: string;
+  /** Team key, e.g. "ENG". */
+  readonly key: string;
+  /** Team name, e.g. "Engineering". */
+  readonly name: string;
+}
+
+/** A workflow-state option (scoped to a team). */
+export interface WorkflowStateOption {
+  /** State UUID (used as `stateId`). */
+  readonly id: string;
+  /** State name, e.g. "In Progress". */
+  readonly name: string;
+  /** State type: backlog|unstarted|started|completed|canceled|triage. */
+  readonly type?: string;
+  /** Hex color string. */
+  readonly color?: string;
+  /** Position, for ordering columns / sort. */
+  readonly position?: number;
+}
+
+/** A user option (for assignee). */
+export interface UserOption {
+  /** User UUID (used as `assigneeId`). */
+  readonly id: string;
+  /** Internal name. */
+  readonly name: string;
+  /** Preferred display name. */
+  readonly displayName: string;
+  /** Absolute avatar image URL, if any. */
+  readonly avatarUrl?: string;
+  /** Whether the user is active. */
+  readonly active?: boolean;
+}
+
+/** A label option (scoped to a team, may include workspace labels). */
+export interface LabelOption {
+  /** Label UUID (used in `labelIds[]`). */
+  readonly id: string;
+  /** Label name. */
+  readonly name: string;
+  /** Hex color string. */
+  readonly color?: string;
+}
+
+/** A project option. */
+export interface ProjectOption {
+  /** Project UUID (used as `projectId`). */
+  readonly id: string;
+  /** Project name. */
+  readonly name: string;
+  /** Project state: backlog|planned|started|paused|completed|canceled. */
+  readonly state?: string;
+}
+
+/** A cycle option (scoped to a team). */
+export interface CycleOption {
+  /** Cycle UUID (used as `cycleId`). */
+  readonly id: string;
+  /** Cycle name; cycles may be unnamed → caller derives "Cycle <number>". */
+  readonly name?: string;
+  /** Cycle number. */
+  readonly number?: number;
+  /** ISO-8601 start timestamp. */
+  readonly startsAt?: string;
+  /** ISO-8601 end timestamp. */
+  readonly endsAt?: string;
+}
+
+/** A lightweight relation row shown when editing blockers. */
+export interface IssueRelation {
+  /** Relation id (for delete). */
+  readonly id: string;
+  /** Relation type; on read this is a plain string (compare against "blocks"). */
+  readonly type: "blocks" | "blocked_by" | "related" | "duplicate" | string;
+  /** The OTHER issue in the relation. */
+  readonly relatedIssue: {
+    readonly id: string;
+    readonly identifier: string;
+    readonly title: string;
+    readonly url?: string;
+  };
+}
+
+/** Priority is an integer in Linear: 0 None, 1 Urgent, 2 High, 3 Normal, 4 Low. */
+export type LinearPriority = 0 | 1 | 2 | 3 | 4;
+
+/** Human labels for {@link LinearPriority}, index-aligned to the enum. */
+export const PRIORITY_LABELS: readonly string[] = [
+  "No priority",
+  "Urgent",
+  "High",
+  "Normal",
+  "Low",
+];
+
+// ---------------------------------------------------------------------------
+// Mutation input bags
+// ---------------------------------------------------------------------------
+
+/** Typed input for {@link LinearClient.createIssue} (maps to `IssueCreateInput`). */
+export interface IssueCreateFields {
+  /** Issue title (required). */
+  title: string;
+  /** Markdown description body. */
+  description?: string;
+  /** Owning team UUID (required). */
+  teamId: string;
+  /** Project UUID, or `null` to leave unset. */
+  projectId?: string | null;
+  /** Priority Int 0–4. */
+  priority?: LinearPriority;
+  /** Full label UUID set. */
+  labelIds?: string[];
+  /** Assignee user UUID, or `null` to leave unassigned. */
+  assigneeId?: string | null;
+  /** Cycle UUID, or `null` to leave unset. */
+  cycleId?: string | null;
+}
+
+/**
+ * Typed input for {@link LinearClient.updateIssue} (maps to `IssueUpdateInput`).
+ * `labelIds` REPLACES the full label set (read existing labels first to add/remove).
+ * Pass `null` for `assigneeId`/`projectId`/`cycleId` to CLEAR that field.
+ */
+export interface IssueUpdateFields {
+  /** Target workflow-state UUID. */
+  stateId?: string;
+  /** Assignee user UUID, or `null` to clear. */
+  assigneeId?: string | null;
+  /** Full label UUID set (replaces, not deltas). */
+  labelIds?: string[];
+  /** Move to another team. */
+  teamId?: string;
+  /** Project UUID, or `null` to clear. */
+  projectId?: string | null;
+  /** Priority Int 0–4. */
+  priority?: LinearPriority;
+  /** Cycle UUID, or `null` to clear. */
+  cycleId?: string | null;
+}
+
+/**
+ * An issue's UUID + CURRENT field values + labels + relations, normalized from
+ * the edit-context query. Powers the whole edit dispatcher (pre-selecting picks
+ * and showing current values inline) from a single fetch, and the blocker UI.
+ */
+export interface IssueEditContext {
+  /** Linear's internal issue UUID (for `issueUpdate` / relation `issueId`). */
+  issueUuid: string;
+  /** Human identifier, e.g. "ENG-123". */
+  identifier: string;
+  /** Owning team, if Linear returned it. */
+  team: TeamOption | undefined;
+  /** The issue's current label set. */
+  labels: LabelOption[];
+  /** Relations where THIS issue blocks the other (this → blocks → other). */
+  blocks: IssueRelation[];
+  /** Relations where the OTHER issue blocks THIS one (other → blocks → this). */
+  blockedBy: IssueRelation[];
+  /** Current workflow-state UUID, for pre-selecting the status pick. */
+  currentStateId?: string;
+  /** Current assignee UUID. */
+  currentAssigneeId?: string;
+  /** Current project UUID. */
+  currentProjectId?: string;
+  /** Current cycle UUID. */
+  currentCycleId?: string;
+  /** Current priority, coerced from Linear's Float read to the 0–4 int. */
+  currentPriority?: LinearPriority;
+}
+
 /**
  * Optional Linear API client. ALL methods degrade gracefully and NEVER throw:
  * when auth/API is unavailable, `fetchIssue` resolves to `null` so callers fall
@@ -347,4 +584,44 @@ export interface LinearClient {
   listIssues(scope: IssueListScope, limit: number): Promise<IssueListItem[]>;
   /** Search issues by free text (Linear `searchIssues`). Empty array on any failure. */
   searchIssues(query: string, limit: number): Promise<IssueListItem[]>;
+
+  // --- Pickers (read; return [] / null on any failure; NEVER throw) ---
+
+  /** All teams the viewer can see. Empty array on any failure. */
+  listTeams(): Promise<TeamOption[]>;
+  /** Teams the viewer is a member of. Empty array on any failure. */
+  listViewerTeams(): Promise<TeamOption[]>;
+  /** Workflow states for a team, ordered. Empty array on any failure. */
+  listWorkflowStates(teamId: string): Promise<WorkflowStateOption[]>;
+  /** Labels visible to a team (team-scoped + workspace). Empty array on any failure. */
+  listLabels(teamId: string): Promise<LabelOption[]>;
+  /** Active users (for assignee). Empty array on any failure. */
+  listUsers(): Promise<UserOption[]>;
+  /** Cycles for a team. Empty array on any failure. */
+  listCycles(teamId: string): Promise<CycleOption[]>;
+  /** Workspace projects. Empty array on any failure. */
+  listProjects(): Promise<ProjectOption[]>;
+  /** Resolve an issue's UUID + team + current field values + labels + relations for editing. null on failure. */
+  getEditContext(id: IssueId): Promise<IssueEditContext | null>;
+
+  // --- Mutations (write; return a typed LinearWriteResult; NEVER throw) ---
+
+  /** Create an issue. Requires write auth (caller gates with `ensureWriteAuth`). */
+  createIssue(input: IssueCreateFields): Promise<LinearWriteResult<IssueMutationResult>>;
+  /** Update an issue by its UUID. Requires write auth (caller gates). */
+  updateIssue(
+    issueUuid: string,
+    input: IssueUpdateFields,
+  ): Promise<LinearWriteResult<IssueMutationResult>>;
+  /**
+   * Create a "blocks" relation: `issueId` blocks `relatedIssueId`. "A is blocked
+   * by B" is modeled as B blocks A. Requires write auth (caller gates).
+   */
+  addRelation(input: {
+    issueId: string;
+    relatedIssueId: string;
+    type: "blocks";
+  }): Promise<LinearWriteResult<RelationMutationResult>>;
+  /** Delete a relation by its id. Requires write auth (caller gates). */
+  removeRelation(relationId: string): Promise<LinearWriteResult<RelationMutationResult>>;
 }

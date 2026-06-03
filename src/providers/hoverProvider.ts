@@ -28,12 +28,16 @@ const COMMAND_VIEW_BRANCH_DIFF = "linearLens.openBranchDiff";
 /** Command opening the V3 ticket-detail webview for an issue id. */
 const COMMAND_OPEN_TICKET = "linearLens.openTicket";
 
+/** Command copying an issue as Markdown to the clipboard (E1). */
+const COMMAND_COPY_MARKDOWN = "linearLens.copyIssueMarkdown";
+
 /** Command ids the hover is allowed to invoke; narrows the trusted-command surface. */
 const TRUSTED_COMMANDS: readonly string[] = [
   "linearLens.configureWorkspace",
   COMMAND_CHECKOUT_BRANCH,
   COMMAND_VIEW_BRANCH_DIFF,
   COMMAND_OPEN_TICKET,
+  COMMAND_COPY_MARKDOWN,
 ];
 
 /**
@@ -126,16 +130,17 @@ export class IssueHoverProvider implements vscode.HoverProvider {
     const md = newTrustedMarkdown();
     const id = ref.issue.normalized;
 
+    const actionRow = `${openDetailsLink(id)} · ${copyMarkdownLink(id)}`;
     if (ref.kind === "url" && ref.url) {
       md.appendMarkdown(`[**${escapeMd(id)}**](${ref.url})\n\n`);
-      md.appendMarkdown(openDetailsLink(id));
+      md.appendMarkdown(actionRow);
     } else if (cfg.workspaceSlug) {
       const url = issueUrl(ref.issue, cfg.workspaceSlug);
       md.appendMarkdown(`[**${escapeMd(id)}**](${url})\n\n`);
-      md.appendMarkdown(openDetailsLink(id));
+      md.appendMarkdown(actionRow);
     } else {
       md.appendMarkdown(`**${escapeMd(id)}**\n\n`);
-      md.appendMarkdown(openDetailsLink(id) + "\n\n");
+      md.appendMarkdown(actionRow + "\n\n");
       md.appendMarkdown(
         "_No workspace slug set._ " +
           "[Configure Workspace Slug](command:linearLens.configureWorkspace)",
@@ -212,8 +217,9 @@ export class IssueHoverProvider implements vscode.HoverProvider {
       md.appendMarkdown(`${checkout} · ${diff}\n\n`);
     }
 
-    // 6. Action row: open the in-editor detail webview, then the canonical issue.
-    const actions: string[] = [openDetailsLink(id)];
+    // 6. Action row: open the in-editor detail webview, copy as Markdown, then
+    //    the canonical issue.
+    const actions: string[] = [openDetailsLink(id), copyMarkdownLink(id)];
     if (url) {
       actions.push(`[Open in Linear](${url})`);
     }
@@ -288,6 +294,16 @@ function encodeCommandArg(arg: { id: string; branchName: string }): string {
 function openDetailsLink(id: string): string {
   const args = encodeURIComponent(JSON.stringify({ id }));
   return `[Open details](command:${COMMAND_OPEN_TICKET}?${args})`;
+}
+
+/**
+ * Build the "Copy as Markdown" command link that copies `id` to the clipboard as
+ * a Markdown document (E1). The `{ id }` argument is JSON-stringified then
+ * `encodeURIComponent`-encoded so it round-trips through the `command:` URI.
+ */
+function copyMarkdownLink(id: string): string {
+  const args = encodeURIComponent(JSON.stringify({ id }));
+  return `[Copy as Markdown](command:${COMMAND_COPY_MARKDOWN}?${args})`;
 }
 
 /** The preferred display name for a person, falling back to the internal name. */

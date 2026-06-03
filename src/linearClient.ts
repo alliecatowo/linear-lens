@@ -1,16 +1,28 @@
 import {
   AuthHeader,
+  CycleOption,
   IssueAttachment,
   IssueComment,
+  IssueCreateFields,
+  IssueEditContext,
   IssueId,
   IssueLabel,
   IssueListItem,
   IssueListScope,
   IssueMetadata,
+  IssueMutationResult,
+  IssueUpdateFields,
+  LabelOption,
   LinearClient,
   LinearLensConfig,
+  LinearWriteResult,
   Person,
+  ProjectOption,
+  RelationMutationResult,
+  TeamOption,
   TicketDetail,
+  UserOption,
+  WorkflowStateOption,
 } from "./types";
 import {
   MY_ISSUES_QUERY,
@@ -24,6 +36,24 @@ import {
   fetchTicketDetail,
   TicketDetailCache,
 } from "./ticketDetail";
+import {
+  addRelationMutation,
+  buildCreateInput,
+  buildUpdateInput,
+  createIssueMutation,
+  fetchCycles,
+  fetchEditContext,
+  fetchLabels,
+  fetchProjects,
+  fetchTeams,
+  fetchUsers,
+  fetchViewerTeams,
+  fetchWorkflowStates,
+  MutationDeps,
+  PickerDeps,
+  removeRelationMutation,
+  updateIssueMutation,
+} from "./linearMutations";
 
 /** SecretStorage key under which the Linear API key is stored. */
 export const API_KEY_SECRET = "linearLens.apiKey";
@@ -153,14 +183,30 @@ interface CacheEntry {
  * caller is responsible for providing the correct format (e.g. `"Bearer <token>"`
  * for OAuth sessions, or the raw key for personal API keys).
  *
+ * Mutations and picker reads are delegated to the `vscode`-free
+ * {@link file://./linearMutations.ts} module. Mutations use `resolveWriteAuth`
+ * (a write-capable credential, personal key preferred); picker reads reuse the
+ * read `resolveAuth`. Picker results are cached in a small TTL map (pickers are
+ * stable) so repeated edit/create flows do not re-fetch every list.
+ *
  * @param getCfg - Accessor returning the current resolved configuration.
- * @param resolveAuth - Async accessor that returns the current auth header, or
- *   `undefined` when no credential is available.
+ * @param resolveAuth - Async accessor that returns the current (read) auth
+ *   header, or `undefined` when no credential is available.
+ * @param resolveWriteAuth - Async accessor returning a WRITE-capable auth header
+ *   (personal key preferred), or `undefined`. Defaults to `resolveAuth` when
+ *   omitted, but the caller SHOULD pass a dedicated write resolver.
+ * @param fetchImpl - Optional `fetch` override (injected in tests for mutations
+ *   and picker reads). Defaults to the global `fetch`.
+ * @param logDebug - Optional debug sink for mutation/picker operation names and
+ *   sanitized error messages (NEVER tokens/variables).
  * @returns A graceful, never-throwing {@link LinearClient}.
  */
 export function createLinearClient(
   getCfg: () => LinearLensConfig,
   resolveAuth: () => Promise<AuthHeader | undefined>,
+  resolveWriteAuth: () => Promise<AuthHeader | undefined> = resolveAuth,
+  fetchImpl?: typeof fetch,
+  logDebug?: (line: string) => void,
 ): LinearClient {
   const cache = new Map<string, CacheEntry>();
   /**
@@ -170,6 +216,53 @@ export function createLinearClient(
   const detailCache: TicketDetailCache = createTicketDetailCache(getCfg);
   /** Cached boolean: whether the last `refreshAuth()` call found a credential. */
   let hasAuthCached = false;
+
+  /**
+   * In-memory TTL cache for picker reads (teams/users/labels/states/cycles/
+   * projects). Pickers are stable; without this, every edit command and create
+   * step would re-fetch. Keyed by operation + scope, e.g. `"teams"`,
+   * `"states:<teamId>"`. Only successful NON-EMPTY lists are cached so a
+   * transient failure self-heals on the next open. See spec §3.5a.
+   */
+  const pickerCache = new Map<string, { value: unknown; expiresAt: number }>();
+
+  /** Read a non-expired picker-cache entry, or `undefined`. */
+  const readPicker = <T>(key: string): T[] | undefined => {
+    const entry = pickerCache.get(key);
+    if (!entry) {
+      return undefined;
+    }
+    if (Date.now() >= entry.expiresAt) {
+      pickerCache.delete(key);
+      return undefined;
+    }
+    return entry.value as T[];
+  };
+
+  /** Cache a non-empty picker list under the configured TTL. Empty lists are skipped. */
+  const writePicker = <T>(key: string, value: T[]): void => {
+    if (value.length === 0) {
+      return;
+    }
+    const ttlMs = Math.max(0, getCfg().cacheTtlSeconds) * 1000;
+    pickerCache.set(key, { value, expiresAt: Date.now() + ttlMs });
+  };
+
+  /** Read-through picker helper: serve a cached non-empty list or fetch + cache. */
+  const cachedPicker = async <T>(key: string, fetcher: () => Promise<T[]>): Promise<T[]> => {
+    const hit = readPicker<T>(key);
+    if (hit) {
+      return hit;
+    }
+    const value = await fetcher();
+    writePicker(key, value);
+    return value;
+  };
+
+  /** Deps for picker READ queries (read auth + injected fetch/log). */
+  const pickerDeps: PickerDeps = { getCfg, resolveAuth, fetchImpl, logDebug };
+  /** Deps for WRITE mutations (write auth + injected fetch/log). */
+  const mutationDeps: MutationDeps = { getCfg, resolveWriteAuth, fetchImpl, logDebug };
 
   /**
    * Map a raw person node onto {@link Person}, or `undefined` when the node is
@@ -353,6 +446,7 @@ export function createLinearClient(
     clearCache(): void {
       cache.clear();
       detailCache.clear();
+      pickerCache.clear();
     },
 
     hasAuth(): boolean {
@@ -474,6 +568,72 @@ export function createLinearClient(
       } catch {
         return [];
       }
+    },
+
+    // --- Pickers (read; cached; delegate to the pure module; never throw) ---
+
+    listTeams(): Promise<TeamOption[]> {
+      return cachedPicker("teams", () => fetchTeams(pickerDeps));
+    },
+
+    listViewerTeams(): Promise<TeamOption[]> {
+      return cachedPicker("viewerTeams", () => fetchViewerTeams(pickerDeps));
+    },
+
+    listWorkflowStates(teamId: string): Promise<WorkflowStateOption[]> {
+      return cachedPicker("states:" + teamId, () =>
+        fetchWorkflowStates(teamId, pickerDeps),
+      );
+    },
+
+    listLabels(teamId: string): Promise<LabelOption[]> {
+      return cachedPicker("labels:" + teamId, () => fetchLabels(teamId, pickerDeps));
+    },
+
+    listUsers(): Promise<UserOption[]> {
+      return cachedPicker("users", () => fetchUsers(pickerDeps));
+    },
+
+    listCycles(teamId: string): Promise<CycleOption[]> {
+      return cachedPicker("cycles:" + teamId, () => fetchCycles(teamId, pickerDeps));
+    },
+
+    listProjects(): Promise<ProjectOption[]> {
+      return cachedPicker("projects", () => fetchProjects(pickerDeps));
+    },
+
+    getEditContext(id: IssueId): Promise<IssueEditContext | null> {
+      // Not cached: edit context reflects live, mutable field values + relations.
+      return fetchEditContext(id, pickerDeps);
+    },
+
+    // --- Mutations (write; delegate to the pure module; never throw) ---
+
+    createIssue(
+      input: IssueCreateFields,
+    ): Promise<LinearWriteResult<IssueMutationResult>> {
+      return createIssueMutation(buildCreateInput(input), mutationDeps);
+    },
+
+    updateIssue(
+      issueUuid: string,
+      input: IssueUpdateFields,
+    ): Promise<LinearWriteResult<IssueMutationResult>> {
+      return updateIssueMutation(issueUuid, buildUpdateInput(input), mutationDeps);
+    },
+
+    addRelation(input: {
+      issueId: string;
+      relatedIssueId: string;
+      type: "blocks";
+    }): Promise<LinearWriteResult<RelationMutationResult>> {
+      return addRelationMutation(input, mutationDeps);
+    },
+
+    removeRelation(
+      relationId: string,
+    ): Promise<LinearWriteResult<RelationMutationResult>> {
+      return removeRelationMutation(relationId, mutationDeps);
     },
   };
 }
