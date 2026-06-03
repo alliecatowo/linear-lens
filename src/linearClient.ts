@@ -1,5 +1,4 @@
-import * as vscode from "vscode";
-import { IssueId, IssueMetadata, LinearClient, LinearLensConfig } from "./types";
+import { AuthHeader, IssueId, IssueMetadata, LinearClient, LinearLensConfig } from "./types";
 
 /** SecretStorage key under which the Linear API key is stored. */
 export const API_KEY_SECRET = "linearLens.apiKey";
@@ -62,22 +61,24 @@ interface CacheEntry {
  * The returned client implements {@link LinearClient}: it POSTs the GraphQL
  * {@link ISSUE_QUERY} to Linear using the global `fetch`, caches results
  * in-memory keyed by `id.normalized` with a TTL from config, and resolves to
- * `null` whenever the API is disabled, no key is present, or any error occurs.
+ * `null` whenever the API is disabled, no auth is present, or any error occurs.
+ *
+ * The `Authorization` header value is taken directly from `auth.value` — the
+ * caller is responsible for providing the correct format (e.g. `"Bearer <token>"`
+ * for OAuth sessions, or the raw key for personal API keys).
  *
  * @param getCfg - Accessor returning the current resolved configuration.
- * @param secrets - VS Code SecretStorage holding the Linear API key.
+ * @param resolveAuth - Async accessor that returns the current auth header, or
+ *   `undefined` when no credential is available.
  * @returns A graceful, never-throwing {@link LinearClient}.
  */
 export function createLinearClient(
   getCfg: () => LinearLensConfig,
-  secrets: vscode.SecretStorage,
+  resolveAuth: () => Promise<AuthHeader | undefined>,
 ): LinearClient {
   const cache = new Map<string, CacheEntry>();
-  let apiKey: string | undefined;
-
-  /** Whether config enables the API and a key is currently present. */
-  const isAuthed = (): boolean =>
-    getCfg().enableApi && typeof apiKey === "string" && apiKey.length > 0;
+  /** Cached boolean: whether the last `refreshAuth()` call found a credential. */
+  let hasAuthCached = false;
 
   /** Map a raw GraphQL issue node onto our {@link IssueMetadata} shape. */
   const toMetadata = (node: IssueNode): IssueMetadata => ({
@@ -114,7 +115,12 @@ export function createLinearClient(
   return {
     async fetchIssue(id: IssueId): Promise<IssueMetadata | null> {
       try {
-        if (!isAuthed()) {
+        if (!getCfg().enableApi) {
+          return null;
+        }
+
+        const auth = await resolveAuth();
+        if (!auth) {
           return null;
         }
 
@@ -123,16 +129,15 @@ export function createLinearClient(
           return cached.value;
         }
 
-        // `isAuthed()` guarantees a non-empty key here.
-        const key = apiKey as string;
         let response: Response;
         try {
           response = await fetch(LINEAR_GRAPHQL_ENDPOINT, {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
-              // Linear personal API keys are sent raw, without a "Bearer" prefix.
-              Authorization: key,
+              // Use auth.value directly — it is already in the correct format:
+              // "Bearer <token>" for OAuth or the raw key for personal API keys.
+              Authorization: auth.value,
             },
             body: JSON.stringify({
               query: ISSUE_QUERY,
@@ -180,16 +185,16 @@ export function createLinearClient(
     },
 
     hasAuth(): boolean {
-      // Reflects the API-enabled config flag plus the last-read key presence;
-      // call refreshAuth() after the key is set/cleared to update the latter.
-      return isAuthed();
+      // Reflects the API-enabled config flag plus the last-known auth presence;
+      // call refreshAuth() after sign-in/out or a key change to update the latter.
+      return getCfg().enableApi && hasAuthCached;
     },
 
     async refreshAuth(): Promise<void> {
       try {
-        apiKey = await secrets.get(API_KEY_SECRET);
+        hasAuthCached = (await resolveAuth()) !== undefined;
       } catch {
-        apiKey = undefined;
+        hasAuthCached = false;
       }
     },
   };

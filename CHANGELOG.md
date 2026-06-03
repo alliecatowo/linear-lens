@@ -5,6 +5,45 @@ All notable changes to the Linear Lens extension are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **OAuth 2.0 PKCE sign-in** — authenticate with Linear directly from the editor using a
+  loopback redirect (`http://localhost:<port>/callback`). No client secret is ever needed or
+  stored; the PKCE flow handles security. Configure your Linear OAuth app's Client ID via
+  `linearLens.auth.clientId` and run **Linear Lens: Sign in to Linear**.
+- **`linearLens.auth.clientId`** setting — your Linear OAuth application's Client ID.
+- **`linearLens.auth.redirectPort`** setting (default `7982`) — local port for the OAuth
+  loopback callback. Register `http://localhost:<port>/callback` as a redirect URI in your
+  Linear OAuth app (exact match required).
+- **Sign in / Sign out / Show Authentication Status** commands (`linearLens.signIn`,
+  `linearLens.signOut`, `linearLens.showAuthStatus`) — manage Linear authentication without
+  leaving the editor. **Show Authentication Status** displays the exact redirect URI to
+  register and your current sign-in state.
+- **In-editor decorations** — all recognized issue references are now visibly highlighted with
+  a dotted underline in the link color, making them stand out at a glance. Controlled by the
+  new `linearLens.decorations.enable` setting (default `true`).
+- **Custom marker keywords** via `linearLens.markers` (default `["TODO","FIXME","BUG","HACK"]`)
+  — the set of actionable marker keywords is now fully configurable. Set custom markers such as
+  `["TASK","NOTE"]` and only those keywords will make references actionable; the defaults no
+  longer apply unless explicitly included. Markers are matched case-insensitively with word
+  boundaries.
+- **`linearLens.links.enable`** setting (default `true`) — toggle clickable document links.
+- **`linearLens.hover.enable`** setting (default `true`) — toggle hover cards.
+- **`linearLens.statusBar.enable`** setting (default `true`) — toggle the branch status bar
+  item.
+- **`linearLens.api.enable`** now defaults to `true` (was `false`). Acts as a master
+  kill-switch: when off, hovers stay basic even when authenticated.
+
+### Changed
+
+- **`linearLens.setApiKey` / `linearLens.clearApiKey`** commands renamed to
+  **Set Personal API Key** / **Clear Personal API Key** in the command palette title to
+  distinguish them from OAuth sign-in.
+- The `resolveAuth` callback in the Linear client now supports both OAuth Bearer tokens and
+  raw personal API keys transparently — callers do not need to differentiate.
+
 ## [0.1.0] - 2026-06-02
 
 Initial release. Linear Lens makes Linear issue IDs like `ENG-123` clickable, hoverable, and
@@ -34,4 +73,5 @@ your TODOs.
 - **Commands:** Configure Workspace Slug, Open Issue…, Copy Issue Link…, Refresh Issue Cache,
   Open Current Branch Issue, Set Linear API Key, and Clear Linear API Key.
 
+[Unreleased]: https://github.com/linear-lens/linear-lens/compare/v0.1.0...HEAD
 [0.1.0]: https://github.com/linear-lens/linear-lens/releases/tag/v0.1.0

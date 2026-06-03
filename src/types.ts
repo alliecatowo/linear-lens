@@ -30,17 +30,17 @@ export interface IssueId {
  * links + hovers but is never reported as a diagnostic.
  */
 export type RefKind =
-  /** Bound to a TODO/FIXME/BUG/HACK marker — actionable, eligible for diagnostics. */
+  /** Bound to an actionable marker (TODO/FIXME/…) — eligible for diagnostics. */
   | "todo"
   /** A bare reference in prose, e.g. "Fixed in ENG-123" — link/hover only. */
   | "raw"
   /** A full linear.app issue URL — link/hover only. */
   | "url";
 
-/** The actionable comment markers that bind a reference into a TODO ref. */
+/** The default actionable comment markers that bind a reference into a TODO ref. */
 export type TodoMarker = "TODO" | "FIXME" | "BUG" | "HACK";
 
-/** All recognized TODO-family markers, in priority order. */
+/** The default recognized TODO-family markers, in priority order. */
 export const TODO_MARKERS: readonly TodoMarker[] = ["TODO", "FIXME", "BUG", "HACK"];
 
 /**
@@ -53,8 +53,12 @@ export interface IssueRef {
   issue: IssueId;
   /** How the reference was found — drives diagnostics eligibility. */
   kind: RefKind;
-  /** The bound marker keyword, present only when `kind === "todo"`. */
-  marker?: TodoMarker;
+  /**
+   * The bound marker keyword (uppercased), present only when `kind === "todo"`
+   * and a keyword marker matched. Left undefined for checkbox-derived todos.
+   * Typed as a string to support user-configured custom markers.
+   */
+  marker?: string;
   /** Start offset of the highlighted token (the ID, or the full URL for url refs). */
   start: number;
   /** End offset (exclusive) of the highlighted token. */
@@ -73,6 +77,12 @@ export interface ScanOptions {
    * with a 2–7 letter uppercase-able key is recognized.
    */
   teamKeys?: string[];
+  /**
+   * Actionable marker keywords that make a line's refs `kind: "todo"`. Compared
+   * case-insensitively with word boundaries. Defaults to {@link TODO_MARKERS}
+   * when empty/undefined.
+   */
+  markers?: string[];
 }
 
 // ---------------------------------------------------------------------------
@@ -88,18 +98,47 @@ export interface LinearLensConfig {
   workspaceSlug: string;
   /** `linearLens.teamKeys` — optional allowlist of recognized team keys. */
   teamKeys: string[];
+  /** `linearLens.markers` — actionable markers; defaults to {@link TODO_MARKERS}. */
+  markers: string[];
   /** `linearLens.diagnostics.enable`. */
   enableDiagnostics: boolean;
   /** `linearLens.diagnostics.severity`. */
   diagnosticSeverity: DiagnosticSeverityName;
-  /** `linearLens.api.enable` — opt-in to live metadata fetches. */
+  /** `linearLens.links.enable` — toggle DocumentLinks. */
+  enableLinks: boolean;
+  /** `linearLens.hover.enable` — toggle hovers. */
+  enableHover: boolean;
+  /** `linearLens.decorations.enable` — toggle the in-editor highlight. */
+  enableDecorations: boolean;
+  /** `linearLens.statusBar.enable` — toggle the branch status bar item. */
+  enableStatusBar: boolean;
+  /** `linearLens.api.enable` — master switch for live metadata fetches. */
   enableApi: boolean;
   /** `linearLens.cache.ttlSeconds` — metadata cache TTL. */
   cacheTtlSeconds: number;
+  /** `linearLens.auth.clientId` — the user's Linear OAuth application client id. */
+  authClientId: string;
+  /** `linearLens.auth.redirectPort` — loopback port for the OAuth callback. */
+  authRedirectPort: number;
 }
 
 // ---------------------------------------------------------------------------
-// Linear API (optional, V1.5)
+// Authentication
+// ---------------------------------------------------------------------------
+
+/** A ready-to-send `Authorization` header value plus which mechanism produced it. */
+export interface AuthHeader {
+  /**
+   * The full header value. For OAuth this is `"Bearer <accessToken>"`; for a
+   * personal API key it is the raw key (Linear personal keys carry no prefix).
+   */
+  value: string;
+  /** Which credential produced the header, for diagnostics. */
+  kind: "oauth" | "apiKey";
+}
+
+// ---------------------------------------------------------------------------
+// Linear API (optional)
 // ---------------------------------------------------------------------------
 
 /** Live issue metadata fetched from the Linear API for rich hovers. */
@@ -133,8 +172,8 @@ export interface LinearClient {
   fetchIssue(id: IssueId): Promise<IssueMetadata | null>;
   /** Drop all cached metadata. */
   clearCache(): void;
-  /** Whether an API key is currently present and the API is enabled. */
+  /** Whether a credential is currently present and the API is enabled. */
   hasAuth(): boolean;
-  /** Re-read auth state (e.g. after a key is set/cleared). */
+  /** Re-read auth state (e.g. after sign-in/out or a key change). */
   refreshAuth(): Promise<void>;
 }

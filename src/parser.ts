@@ -2,8 +2,9 @@
  * Linear Lens — text parser (pure, no `vscode` import).
  *
  * Detects Linear issue references in arbitrary text and classifies each as:
- *  - `"todo"`: bound to a TODO/FIXME/BUG/HACK marker or an unchecked markdown
- *    checkbox on the same line — actionable, eligible for diagnostics.
+ *  - `"todo"`: bound to an actionable marker (default: TODO/FIXME/BUG/HACK, or
+ *    custom via `ScanOptions.markers`) or an unchecked markdown checkbox on the
+ *    same line — actionable, eligible for diagnostics.
  *  - `"raw"`:  a bare id in prose (e.g. "Fixed in ENG-123") — link/hover only.
  *  - `"url"`:  a full linear.app issue URL — link/hover only.
  *
@@ -11,7 +12,7 @@
  * EXACT string passed in, so callers can map them with `document.positionAt`.
  */
 
-import { IssueId, IssueRef, ScanOptions, TodoMarker, TODO_MARKERS } from "./types";
+import { IssueId, IssueRef, ScanOptions, TODO_MARKERS } from "./types";
 
 // ---------------------------------------------------------------------------
 // Regex building blocks
@@ -34,11 +35,18 @@ const URL_REGEX =
   /https?:\/\/linear\.app\/[^\s/]+\/issue\/([A-Za-z]{2,7})-(\d{1,6})(?:\/[A-Za-z0-9._~-]*)?/g;
 
 /**
- * Markers that make a line actionable, matched as whole words,
- * case-insensitively. Word boundaries prevent false hits like
+ * Build a regex that matches actionable marker keywords as whole words,
+ * case-insensitively. Each marker is regex-escaped and joined with `|`,
+ * then wrapped in `\b...\b`. Word boundaries prevent false hits like
  * `debug` → BUG or `hackathon` → HACK.
+ *
+ * @param markers A non-empty array of marker strings to use.
+ * @returns       A case-insensitive regex matching any of the markers.
  */
-const MARKER_REGEX = /\b(TODO|FIXME|BUG|HACK)\b/i;
+function buildMarkerRegex(markers: readonly string[]): RegExp {
+  const pattern = markers.map(escapeRegExp).join("|");
+  return new RegExp(`\\b(${pattern})\\b`, "i");
+}
 
 /**
  * An unchecked markdown task item: `- [ ] `, `* [ ] `, or `+ [ ] ` at the
@@ -115,11 +123,18 @@ function teamAllowed(team: string, teamKeys: string[] | undefined): boolean {
  * yield `"todo"` refs; all other lines yield `"raw"` refs.
  *
  * @param text    The exact document text to scan.
- * @param options Optional scan options (notably the `teamKeys` allowlist).
+ * @param options Optional scan options (the `teamKeys` allowlist and custom `markers`).
+ *                When `options.markers` is a non-empty array, only those markers (compared
+ *                case-insensitively, whole-word) make a line actionable. When omitted or
+ *                empty, the default {@link TODO_MARKERS} (TODO/FIXME/BUG/HACK) are used.
  * @returns       All detected references, sorted by start offset.
  */
 export function scanText(text: string, options?: ScanOptions): IssueRef[] {
   const teamKeys = options?.teamKeys;
+  // Build the marker regex from options.markers when non-empty, else default.
+  const markerSource =
+    options?.markers && options.markers.length > 0 ? options.markers : TODO_MARKERS;
+  const markerRegex = buildMarkerRegex(markerSource);
   const refs: IssueRef[] = [];
 
   // --- Pass 1: URLs (authoritative, allowlist-exempt) ----------------------
@@ -151,7 +166,7 @@ export function scanText(text: string, options?: ScanOptions): IssueRef[] {
     // Advance lineStart past this line and its trailing newline for next iter.
     lineStart += line.length + 1;
 
-    const { actionable, marker } = classifyLine(line);
+    const { actionable, marker } = classifyLine(line, markerRegex);
 
     idRegex.lastIndex = 0;
     for (const m of line.matchAll(idRegex)) {
@@ -237,19 +252,22 @@ export function issueIdFromBranch(branch: string, options?: ScanOptions): IssueI
 
 /**
  * Determine whether a line is actionable and, if so, which marker (if any)
- * bound it. A line is actionable if it contains a TODO-family marker keyword
- * (whole-word, case-insensitive) OR is an unchecked markdown checkbox.
+ * bound it. A line is actionable if it contains a marker keyword (whole-word,
+ * case-insensitive, as defined by `markerRegex`) OR is an unchecked markdown
+ * checkbox.
  *
  * The checkbox case has no keyword, so `marker` is `undefined` there. When a
  * marker keyword is present, it is normalized to uppercase. If multiple markers
  * appear on the line, we record the FIRST one (left-most) the regex finds.
+ *
+ * @param line        The line of text to classify.
+ * @param markerRegex The pre-built marker keyword regex (case-insensitive, `\b`-bounded).
  */
-function classifyLine(line: string): { actionable: boolean; marker?: TodoMarker } {
-  const markerMatch = MARKER_REGEX.exec(line);
+function classifyLine(line: string, markerRegex: RegExp): { actionable: boolean; marker?: string } {
+  const markerMatch = markerRegex.exec(line);
   if (markerMatch) {
-    const upper = markerMatch[1].toUpperCase();
-    // Narrow to the TodoMarker union via the canonical list.
-    const marker = TODO_MARKERS.find((k) => k === upper);
+    // Normalize the matched keyword to uppercase (supports custom markers too).
+    const marker = markerMatch[1].toUpperCase();
     return { actionable: true, marker };
   }
   if (UNCHECKED_CHECKBOX_REGEX.test(line)) {

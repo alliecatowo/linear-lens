@@ -127,7 +127,7 @@ export class BranchStatusBar {
 
   /** Render the status bar item for the given issue id (or hide when none). */
   private render(id: IssueId | null): void {
-    if (id === null) {
+    if (id === null || !this.getCfg().enableStatusBar) {
       this.item.hide();
       return;
     }

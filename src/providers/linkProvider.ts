@@ -37,7 +37,10 @@ export class IssueLinkProvider implements vscode.DocumentLinkProvider {
     token: vscode.CancellationToken,
   ): vscode.DocumentLink[] {
     const cfg = this.getCfg();
-    const refs = scanText(document.getText(), { teamKeys: cfg.teamKeys });
+    if (!cfg.enableLinks) {
+      return [];
+    }
+    const refs = scanText(document.getText(), { teamKeys: cfg.teamKeys, markers: cfg.markers });
     const links: vscode.DocumentLink[] = [];
 
     for (const ref of refs) {

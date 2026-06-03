@@ -67,7 +67,7 @@ export class DiagnosticsManager {
     }
 
     const severity = toDiagnosticSeverity(cfg.diagnosticSeverity);
-    const refs = scanText(document.getText(), { teamKeys: cfg.teamKeys });
+    const refs = scanText(document.getText(), { teamKeys: cfg.teamKeys, markers: cfg.markers });
     const diagnostics: vscode.Diagnostic[] = [];
 
     for (const ref of refs) {

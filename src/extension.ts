@@ -1,13 +1,24 @@
+/**
+ * Linear Lens — extension entry point.
+ *
+ * Wires together every module: configuration, OAuth sign-in (PKCE), the optional
+ * Linear API client, document links + hovers, marker-bound diagnostics, in-editor
+ * decorations, the current-branch status bar, and the contributed commands. All
+ * disposables are registered on `context.subscriptions` so deactivation is a no-op.
+ */
+
 import * as vscode from "vscode";
 
 import { CONFIG_SECTION, getConfig } from "./config";
-import { createLinearClient } from "./linearClient";
+import { createLinearClient, API_KEY_SECRET } from "./linearClient";
 import { IssueLinkProvider } from "./providers/linkProvider";
 import { IssueHoverProvider } from "./providers/hoverProvider";
 import { DiagnosticsManager } from "./diagnostics";
 import { BranchStatusBar } from "./branch";
+import { IssueDecorator } from "./decorations";
 import { registerCommands } from "./commands";
-import type { LinearLensConfig } from "./types";
+import { registerLinearAuthProvider, getLinearOAuthHeader } from "./auth";
+import type { AuthHeader, LinearLensConfig } from "./types";
 
 /** Documents Linear Lens operates on: real files and untitled buffers. */
 const DOCUMENT_SELECTOR: vscode.DocumentSelector = [
@@ -16,11 +27,14 @@ const DOCUMENT_SELECTOR: vscode.DocumentSelector = [
 ];
 
 /**
- * Activate Linear Lens: wire the parser-backed providers, diagnostics, branch
- * status bar, and commands together, and keep them in sync with configuration.
+ * Activate Linear Lens: register the OAuth provider, wire the parser-backed
+ * providers, diagnostics, decorations, branch status bar, and commands together,
+ * and keep them all in sync with configuration and authentication changes.
+ *
+ * @param context The extension context whose `subscriptions` own all disposables.
  */
 export function activate(context: vscode.ExtensionContext): void {
-  // Single cached config snapshot, re-read on configuration changes. All modules
+  // Cached config snapshot, re-read on configuration changes. All modules
   // receive the same `getCfg` accessor so they always see the latest values.
   let cfg: LinearLensConfig = getConfig();
   const getCfg = (): LinearLensConfig => cfg;
@@ -28,11 +42,30 @@ export function activate(context: vscode.ExtensionContext): void {
     cfg = getConfig();
   };
 
-  // Optional Linear API client (degrades gracefully when disabled/unauthenticated).
-  const client = createLinearClient(getCfg, context.secrets);
+  // Linear sign-in (OAuth/PKCE) registered as an AuthenticationProvider.
+  const auth = registerLinearAuthProvider(context, getCfg);
+
+  // Resolve an Authorization header: prefer an OAuth session, else a personal key.
+  const resolveAuth = async (): Promise<AuthHeader | undefined> => {
+    const oauth = await getLinearOAuthHeader();
+    if (oauth) {
+      return { value: oauth, kind: "oauth" };
+    }
+    const key = await context.secrets.get(API_KEY_SECRET);
+    if (key) {
+      return { value: key, kind: "apiKey" };
+    }
+    return undefined;
+  };
+
+  const client = createLinearClient(getCfg, resolveAuth);
   void client.refreshAuth();
 
-  // Document links + hovers.
+  // In-editor highlight of references.
+  const decorator = new IssueDecorator(getCfg);
+  const refreshUi = (): void => decorator.applyToVisible();
+
+  // Links + hovers.
   context.subscriptions.push(
     vscode.languages.registerDocumentLinkProvider(
       DOCUMENT_SELECTOR,
@@ -44,15 +77,28 @@ export function activate(context: vscode.ExtensionContext): void {
     ),
   );
 
-  // Diagnostics (TODO-bound refs only).
+  // Diagnostics (marker-bound refs only).
   const collection = vscode.languages.createDiagnosticCollection("linearLens");
   const diagnostics = new DiagnosticsManager(collection, getCfg);
   diagnostics.refreshAll(vscode.workspace.textDocuments);
+  decorator.applyToVisible();
+
   context.subscriptions.push(
     { dispose: () => diagnostics.dispose() },
-    vscode.workspace.onDidOpenTextDocument((doc) => diagnostics.refresh(doc)),
-    vscode.workspace.onDidChangeTextDocument((e) => diagnostics.refresh(e.document)),
+    { dispose: () => decorator.dispose() },
+    vscode.workspace.onDidOpenTextDocument((doc) => {
+      diagnostics.refresh(doc);
+      refreshUi();
+    }),
+    vscode.workspace.onDidChangeTextDocument((e) => {
+      diagnostics.refresh(e.document);
+      if (vscode.window.activeTextEditor?.document === e.document) {
+        decorator.apply(vscode.window.activeTextEditor);
+      }
+    }),
     vscode.workspace.onDidCloseTextDocument((doc) => diagnostics.clear(doc.uri)),
+    vscode.window.onDidChangeActiveTextEditor((editor) => decorator.apply(editor)),
+    vscode.window.onDidChangeVisibleTextEditors(() => decorator.applyToVisible()),
   );
 
   // Current-branch issue status bar.
@@ -66,11 +112,21 @@ export function activate(context: vscode.ExtensionContext): void {
     client,
     branch,
     diagnostics,
+    auth,
     refreshConfig,
+    refreshUi,
     secrets: context.secrets,
   });
 
-  // React to configuration changes: re-read config and refresh everything.
+  // Refresh when sessions change (sign in/out).
+  context.subscriptions.push(
+    auth.onDidChangeSessions(() => {
+      void client.refreshAuth();
+      refreshUi();
+    }),
+  );
+
+  // React to configuration changes.
   context.subscriptions.push(
     vscode.workspace.onDidChangeConfiguration((e) => {
       if (!e.affectsConfiguration(CONFIG_SECTION)) {
@@ -80,6 +136,7 @@ export function activate(context: vscode.ExtensionContext): void {
       void client.refreshAuth();
       diagnostics.refreshAll(vscode.workspace.textDocuments);
       branch.refresh();
+      decorator.applyToVisible();
     }),
   );
 }

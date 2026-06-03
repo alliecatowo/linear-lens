@@ -484,6 +484,126 @@ describe("scanText — teamKeys allowlist", () => {
   });
 });
 
+describe("scanText — custom markers (ScanOptions.markers)", () => {
+  it('markers:["TASK","NOTE"] — "TASK: ENG-1" => todo(TASK)', () => {
+    const text = "TASK: ENG-1";
+    const refs = scanText(text, { markers: ["TASK", "NOTE"] });
+    expect(refs).toHaveLength(1);
+    expect(refs[0].kind).toBe("todo");
+    expect(refs[0].marker).toBe("TASK");
+    expect(refs[0].issue.normalized).toBe("ENG-1");
+    expectOffsetsMatchRaw(text, refs[0]);
+  });
+
+  it('markers:["TASK","NOTE"] — "NOTE ENG-2 see docs" => todo(NOTE)', () => {
+    const text = "NOTE ENG-2 see docs";
+    const refs = scanText(text, { markers: ["TASK", "NOTE"] });
+    expect(refs).toHaveLength(1);
+    expect(refs[0].kind).toBe("todo");
+    expect(refs[0].marker).toBe("NOTE");
+    expect(refs[0].issue.normalized).toBe("ENG-2");
+    expectOffsetsMatchRaw(text, refs[0]);
+  });
+
+  it('markers:["TASK"] — "TODO: ENG-2" => raw (TODO no longer actionable)', () => {
+    const text = "TODO: ENG-2";
+    const refs = scanText(text, { markers: ["TASK"] });
+    expect(refs).toHaveLength(1);
+    expect(refs[0].kind).toBe("raw");
+    expect(refs[0].marker).toBeUndefined();
+    expect(refs[0].issue.normalized).toBe("ENG-2");
+  });
+
+  it('markers:["TASK"] — "FIXME ENG-3" => raw (FIXME not in custom list)', () => {
+    const text = "FIXME ENG-3";
+    const refs = scanText(text, { markers: ["TASK"] });
+    expect(refs).toHaveLength(1);
+    expect(refs[0].kind).toBe("raw");
+    expect(refs[0].marker).toBeUndefined();
+  });
+
+  it('markers:["TASK"] — "TASK ENG-4" => todo(TASK)', () => {
+    const text = "TASK ENG-4";
+    const refs = scanText(text, { markers: ["TASK"] });
+    expect(refs).toHaveLength(1);
+    expect(refs[0].kind).toBe("todo");
+    expect(refs[0].marker).toBe("TASK");
+  });
+
+  it("custom markers are matched case-insensitively and stored uppercased", () => {
+    const text = "task: ENG-5 check this";
+    const refs = scanText(text, { markers: ["TASK"] });
+    expect(refs).toHaveLength(1);
+    expect(refs[0].kind).toBe("todo");
+    expect(refs[0].marker).toBe("TASK");
+  });
+
+  it("custom markers respect word boundaries (no partial matches)", () => {
+    // "tasklist" must NOT match marker TASK
+    const text = "tasklist ENG-6 review";
+    const refs = scanText(text, { markers: ["TASK"] });
+    expect(refs).toHaveLength(1);
+    expect(refs[0].kind).toBe("raw");
+    expect(refs[0].marker).toBeUndefined();
+  });
+
+  it("default behavior is unchanged when markers option is omitted", () => {
+    const todoText = "TODO ENG-10";
+    const todoRefs = scanText(todoText);
+    expect(todoRefs).toHaveLength(1);
+    expect(todoRefs[0].kind).toBe("todo");
+    expect(todoRefs[0].marker).toBe("TODO");
+
+    const fixmeText = "FIXME ENG-11";
+    const fixmeRefs = scanText(fixmeText);
+    expect(fixmeRefs).toHaveLength(1);
+    expect(fixmeRefs[0].kind).toBe("todo");
+    expect(fixmeRefs[0].marker).toBe("FIXME");
+
+    const rawText = "ENG-12 some prose";
+    const rawRefs = scanText(rawText);
+    expect(rawRefs).toHaveLength(1);
+    expect(rawRefs[0].kind).toBe("raw");
+  });
+
+  it("default behavior is unchanged when markers option is an empty array", () => {
+    // Empty array => fall back to default TODO_MARKERS
+    const text = "TODO ENG-20";
+    const refs = scanText(text, { markers: [] });
+    expect(refs).toHaveLength(1);
+    expect(refs[0].kind).toBe("todo");
+    expect(refs[0].marker).toBe("TODO");
+  });
+
+  it("markers:['TASK','NOTE'] — all ids on actionable line get todo kind", () => {
+    const text = "TASK ENG-7 and ENG-8 are related";
+    const refs = scanText(text, { markers: ["TASK", "NOTE"] });
+    expect(refs).toHaveLength(2);
+    expect(refs.every((r) => r.kind === "todo")).toBe(true);
+    expect(refs.every((r) => r.marker === "TASK")).toBe(true);
+    expect(refs.map((r) => r.issue.normalized)).toEqual(["ENG-7", "ENG-8"]);
+  });
+
+  it("markers with special regex chars are safely escaped", () => {
+    // Marker with a dot (.) should be treated as a literal dot, not any char.
+    const text = "C.NOTE: ENG-9 important";
+    const refs = scanText(text, { markers: ["C.NOTE"] });
+    expect(refs).toHaveLength(1);
+    expect(refs[0].kind).toBe("todo");
+    expect(refs[0].marker).toBe("C.NOTE");
+  });
+
+  it("custom markers work alongside teamKeys", () => {
+    const text = "TASK: ENG-1 and ABC-2";
+    const refs = scanText(text, { markers: ["TASK"], teamKeys: ["ENG"] });
+    expect(refs).toHaveLength(1);
+    expect(refs[0].kind).toBe("todo");
+    expect(refs[0].marker).toBe("TASK");
+    expect(refs[0].issue.normalized).toBe("ENG-1");
+    // ABC-2 is filtered by teamKeys
+  });
+});
+
 describe("issueIdFromBranch", () => {
   it('"allie/eng-123-auth-redirect" => ENG-123', () => {
     expect(issueIdFromBranch("allie/eng-123-auth-redirect")).toEqual({

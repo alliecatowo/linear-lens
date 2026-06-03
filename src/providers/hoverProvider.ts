@@ -38,8 +38,11 @@ export class IssueHoverProvider implements vscode.HoverProvider {
     token: vscode.CancellationToken,
   ): Promise<vscode.Hover | undefined> {
     const cfg = this.getCfg();
+    if (!cfg.enableHover) {
+      return undefined;
+    }
     const offset = document.offsetAt(position);
-    const refs = scanText(document.getText(), { teamKeys: cfg.teamKeys });
+    const refs = scanText(document.getText(), { teamKeys: cfg.teamKeys, markers: cfg.markers });
     const ref = refs.find((r) => offset >= r.start && offset < r.end);
     if (!ref) {
       return undefined;

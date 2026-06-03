@@ -7,13 +7,21 @@
  */
 
 import * as vscode from "vscode";
-import { DiagnosticSeverityName, IssueId, LinearLensConfig } from "./types";
+import {
+  DiagnosticSeverityName,
+  IssueId,
+  LinearLensConfig,
+  TODO_MARKERS,
+} from "./types";
 
 /** The configuration section name used by every `linearLens.*` setting. */
 export const CONFIG_SECTION = "linearLens";
 
 /** Default metadata cache TTL, in seconds, when the setting is invalid. */
 const DEFAULT_CACHE_TTL_SECONDS = 300;
+
+/** Default loopback port for the OAuth callback when the setting is invalid. */
+const DEFAULT_REDIRECT_PORT = 7982;
 
 /** Default diagnostic severity when the setting is missing/invalid. */
 const DEFAULT_DIAGNOSTIC_SEVERITY: DiagnosticSeverityName = "information";
@@ -26,29 +34,24 @@ const DIAGNOSTIC_SEVERITIES: readonly DiagnosticSeverityName[] = [
   "hint",
 ];
 
-/**
- * Coerce an unknown value to a string, returning `fallback` when it is not a
- * non-empty string after trimming.
- */
+/** Coerce an unknown value to a string, returning `fallback` for non-strings. */
 function toStringOr(value: unknown, fallback: string): string {
   return typeof value === "string" ? value : fallback;
 }
 
-/**
- * Coerce an unknown value to a boolean, returning `fallback` for non-booleans.
- */
+/** Coerce an unknown value to a boolean, returning `fallback` for non-booleans. */
 function toBooleanOr(value: unknown, fallback: boolean): boolean {
   return typeof value === "boolean" ? value : fallback;
 }
 
 /**
- * Normalize an unknown `teamKeys` value into an array of trimmed, uppercased,
- * non-empty, de-duplicated team keys. Non-arrays and non-string entries are
- * dropped.
+ * Normalize an unknown value into an array of trimmed, uppercased, non-empty,
+ * de-duplicated strings. Non-arrays and non-string entries are dropped. When
+ * the result is empty and `fallback` is provided, `fallback` is returned.
  */
-function normalizeTeamKeys(value: unknown): string[] {
+function normalizeKeyList(value: unknown, fallback: string[] = []): string[] {
   if (!Array.isArray(value)) {
-    return [];
+    return [...fallback];
   }
   const seen = new Set<string>();
   const result: string[] = [];
@@ -63,13 +66,10 @@ function normalizeTeamKeys(value: unknown): string[] {
     seen.add(key);
     result.push(key);
   }
-  return result;
+  return result.length > 0 ? result : [...fallback];
 }
 
-/**
- * Validate an unknown value against the diagnostic-severity enum, falling back
- * to {@link DEFAULT_DIAGNOSTIC_SEVERITY} when it is not a recognized name.
- */
+/** Validate an unknown value against the diagnostic-severity enum. */
 function normalizeSeverity(value: unknown): DiagnosticSeverityName {
   if (
     typeof value === "string" &&
@@ -80,15 +80,25 @@ function normalizeSeverity(value: unknown): DiagnosticSeverityName {
   return DEFAULT_DIAGNOSTIC_SEVERITY;
 }
 
-/**
- * Coerce an unknown value to a finite, non-negative number of seconds, falling
- * back to {@link DEFAULT_CACHE_TTL_SECONDS} when it is not a usable number.
- */
-function normalizeCacheTtlSeconds(value: unknown): number {
+/** Coerce an unknown value to a finite, non-negative number, with a fallback. */
+function normalizeNonNegativeNumber(value: unknown, fallback: number): number {
   if (typeof value === "number" && Number.isFinite(value) && value >= 0) {
     return value;
   }
-  return DEFAULT_CACHE_TTL_SECONDS;
+  return fallback;
+}
+
+/** Coerce an unknown value to a valid TCP port (1–65535), with a fallback. */
+function normalizePort(value: unknown, fallback: number): number {
+  if (
+    typeof value === "number" &&
+    Number.isInteger(value) &&
+    value >= 1 &&
+    value <= 65535
+  ) {
+    return value;
+  }
+  return fallback;
 }
 
 /**
@@ -101,11 +111,21 @@ export function getConfig(): LinearLensConfig {
   const cfg = vscode.workspace.getConfiguration(CONFIG_SECTION);
   return {
     workspaceSlug: toStringOr(cfg.get("workspaceSlug"), "").trim(),
-    teamKeys: normalizeTeamKeys(cfg.get("teamKeys")),
+    teamKeys: normalizeKeyList(cfg.get("teamKeys")),
+    markers: normalizeKeyList(cfg.get("markers"), [...TODO_MARKERS]),
     enableDiagnostics: toBooleanOr(cfg.get("diagnostics.enable"), true),
     diagnosticSeverity: normalizeSeverity(cfg.get("diagnostics.severity")),
-    enableApi: toBooleanOr(cfg.get("api.enable"), false),
-    cacheTtlSeconds: normalizeCacheTtlSeconds(cfg.get("cache.ttlSeconds")),
+    enableLinks: toBooleanOr(cfg.get("links.enable"), true),
+    enableHover: toBooleanOr(cfg.get("hover.enable"), true),
+    enableDecorations: toBooleanOr(cfg.get("decorations.enable"), true),
+    enableStatusBar: toBooleanOr(cfg.get("statusBar.enable"), true),
+    enableApi: toBooleanOr(cfg.get("api.enable"), true),
+    cacheTtlSeconds: normalizeNonNegativeNumber(
+      cfg.get("cache.ttlSeconds"),
+      DEFAULT_CACHE_TTL_SECONDS,
+    ),
+    authClientId: toStringOr(cfg.get("auth.clientId"), "").trim(),
+    authRedirectPort: normalizePort(cfg.get("auth.redirectPort"), DEFAULT_REDIRECT_PORT),
   };
 }
 

@@ -28,31 +28,53 @@
     "commands": [
       {
         "command": "linearLens.configureWorkspace",
-        "title": "Linear Lens: Configure Workspace Slug"
+        "title": "Configure Workspace Slug",
+        "category": "Linear Lens"
       },
       {
         "command": "linearLens.openIssue",
-        "title": "Linear Lens: Open Issue…"
+        "title": "Open Issue…",
+        "category": "Linear Lens"
       },
       {
         "command": "linearLens.copyIssueLink",
-        "title": "Linear Lens: Copy Issue Link…"
+        "title": "Copy Issue Link…",
+        "category": "Linear Lens"
       },
       {
         "command": "linearLens.refreshCache",
-        "title": "Linear Lens: Refresh Issue Cache"
+        "title": "Refresh Issue Cache",
+        "category": "Linear Lens"
       },
       {
         "command": "linearLens.openCurrentBranchIssue",
-        "title": "Linear Lens: Open Current Branch Issue"
+        "title": "Open Current Branch Issue",
+        "category": "Linear Lens"
+      },
+      {
+        "command": "linearLens.signIn",
+        "title": "Sign in to Linear",
+        "category": "Linear Lens"
+      },
+      {
+        "command": "linearLens.signOut",
+        "title": "Sign out of Linear",
+        "category": "Linear Lens"
+      },
+      {
+        "command": "linearLens.showAuthStatus",
+        "title": "Show Authentication Status",
+        "category": "Linear Lens"
       },
       {
         "command": "linearLens.setApiKey",
-        "title": "Linear Lens: Set Linear API Key"
+        "title": "Set Personal API Key",
+        "category": "Linear Lens"
       },
       {
         "command": "linearLens.clearApiKey",
-        "title": "Linear Lens: Clear Linear API Key"
+        "title": "Clear Personal API Key",
+        "category": "Linear Lens"
       }
     ],
     "configuration": {
@@ -69,12 +91,25 @@
             "type": "string"
           },
           "default": [],
-          "markdownDescription": "Optional allowlist of team keys to recognize (e.g. `[\"ENG\", \"DESIGN\"]`). When empty, any `ABC-123`-shaped token (2–7 uppercase letters) is treated as an issue ID."
+          "markdownDescription": "Optional allowlist of team keys to recognize (e.g. `[\"ENG\", \"DESIGN\"]`). When empty, any `ABC-123`-shaped token (2–7 letters) is treated as an issue ID."
+        },
+        "linearLens.markers": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "TODO",
+            "FIXME",
+            "BUG",
+            "HACK"
+          ],
+          "markdownDescription": "Actionable marker keywords. A reference on a line containing one of these (or an unchecked `- [ ]` task) is treated as actionable and can appear in the Problems panel. Matched case-insensitively with word boundaries."
         },
         "linearLens.diagnostics.enable": {
           "type": "boolean",
           "default": true,
-          "description": "Surface TODO/FIXME/BUG/HACK-bound Linear references in the Problems panel. Raw references in prose are never reported."
+          "description": "Surface actionable, marker-bound Linear references in the Problems panel. Raw references in prose are never reported."
         },
         "linearLens.diagnostics.severity": {
           "type": "string",
@@ -85,18 +120,50 @@
             "hint"
           ],
           "default": "information",
-          "description": "Severity used for TODO-bound Linear references in the Problems panel."
+          "description": "Severity used for marker-bound Linear references in the Problems panel."
+        },
+        "linearLens.links.enable": {
+          "type": "boolean",
+          "default": true,
+          "description": "Turn recognized issue references into clickable document links."
+        },
+        "linearLens.hover.enable": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show hover cards for issue references."
+        },
+        "linearLens.decorations.enable": {
+          "type": "boolean",
+          "default": true,
+          "description": "Visibly highlight recognized issue references in the editor."
+        },
+        "linearLens.statusBar.enable": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show a status bar item for the Linear issue detected in the current git branch."
         },
         "linearLens.api.enable": {
           "type": "boolean",
-          "default": false,
-          "markdownDescription": "Fetch live issue metadata (title, status, assignee, priority, project) from the Linear API for richer hovers. Requires an API key set via **Linear Lens: Set Linear API Key**. Falls back to basic link/hover when disabled or unavailable."
+          "default": true,
+          "markdownDescription": "Fetch live issue metadata (title, status, assignee, priority, project) for richer hovers when signed in or a personal API key is set. Acts as a master kill-switch: when off, hovers stay basic even when authenticated."
         },
         "linearLens.cache.ttlSeconds": {
           "type": "number",
           "default": 300,
           "minimum": 0,
           "description": "How long (in seconds) to cache fetched issue metadata before refetching."
+        },
+        "linearLens.auth.clientId": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Your Linear OAuth application's **Client ID** (from Linear → Settings → API → OAuth applications). Required to sign in with Linear. No client secret is needed — Linear Lens uses the PKCE flow."
+        },
+        "linearLens.auth.redirectPort": {
+          "type": "number",
+          "default": 7982,
+          "minimum": 1,
+          "maximum": 65535,
+          "markdownDescription": "Local loopback port for the OAuth callback. Register `http://localhost:<port>/callback` as the redirect URI in your Linear OAuth application (exact match required). Run **Linear Lens: Show Authentication Status** to see the exact URL."
         }
       }
     }
