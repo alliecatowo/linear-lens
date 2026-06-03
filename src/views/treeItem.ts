@@ -23,8 +23,8 @@ import { FileRefNode, IssueNode, LinearTreeNode, MessageNode } from "./issueTree
  */
 const COMMAND_REVEAL_FILE_REF = "linearLens.revealFileRef";
 
-/** Command run when an issue/file-ref node is activated — opens the issue. */
-const COMMAND_OPEN_ISSUE = "linearLens.openIssue";
+/** Command run when an issue node is activated — opens the detail webview. */
+const COMMAND_OPEN_TICKET = "linearLens.openTicket";
 
 /** Context value applied to issue-bearing nodes, driving `view/item/context`. */
 const CONTEXT_VALUE_ISSUE = "linearIssue";
@@ -94,14 +94,14 @@ function issueTooltip(item: IssueListItem): vscode.MarkdownString {
 }
 
 /**
- * Build the `command` that opens an issue node. Passes a `{ id, url }` arg so
- * the command can open the canonical URL directly (until the V3 detail webview
- * lands) without re-parsing or relying on the cursor.
+ * Build the `command` that opens an issue node in the V3 detail webview. Passes
+ * an `{ id, url }` arg so {@link COMMAND_OPEN_TICKET} resolves the issue directly
+ * from the node without re-parsing or relying on the editor cursor.
  */
 function openIssueCommand(item: IssueListItem): vscode.Command {
   return {
-    command: COMMAND_OPEN_ISSUE,
-    title: "Open Issue",
+    command: COMMAND_OPEN_TICKET,
+    title: "Open Issue Detail",
     arguments: [{ id: item.id, url: item.url }],
   };
 }

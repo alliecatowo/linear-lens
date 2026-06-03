@@ -127,6 +127,12 @@
         "command": "linearLens.openInAgent",
         "title": "Open in Coding Agent",
         "category": "Linear Lens"
+      },
+      {
+        "command": "linearLens.openTicket",
+        "title": "Open Issue Detail",
+        "category": "Linear Lens",
+        "icon": "$(preview)"
       }
     ],
     "viewsContainers": {
@@ -197,19 +203,29 @@
       ],
       "view/item/context": [
         {
-          "command": "linearLens.openIssue",
+          "command": "linearLens.openTicket",
           "when": "viewItem == linearIssue",
           "group": "inline"
         },
         {
-          "command": "linearLens.copyIssueLink",
+          "command": "linearLens.openTicket",
           "when": "viewItem == linearIssue",
           "group": "1_open@1"
         },
         {
-          "command": "linearLens.copyIssueId",
+          "command": "linearLens.openIssue",
           "when": "viewItem == linearIssue",
           "group": "1_open@2"
+        },
+        {
+          "command": "linearLens.copyIssueLink",
+          "when": "viewItem == linearIssue",
+          "group": "1_open@3"
+        },
+        {
+          "command": "linearLens.copyIssueId",
+          "when": "viewItem == linearIssue",
+          "group": "1_open@4"
         },
         {
           "command": "linearLens.checkoutBranch",
@@ -224,19 +240,24 @@
       ],
       "editor/context": [
         {
-          "command": "linearLens.openIssue",
+          "command": "linearLens.openTicket",
           "when": "editorTextFocus && linearLens.refUnderCursor",
           "group": "linearLens@1"
         },
         {
-          "command": "linearLens.copyIssueId",
+          "command": "linearLens.openIssue",
           "when": "editorTextFocus && linearLens.refUnderCursor",
           "group": "linearLens@2"
         },
         {
-          "command": "linearLens.revealInLinearView",
+          "command": "linearLens.copyIssueId",
           "when": "editorTextFocus && linearLens.refUnderCursor",
           "group": "linearLens@3"
+        },
+        {
+          "command": "linearLens.revealInLinearView",
+          "when": "editorTextFocus && linearLens.refUnderCursor",
+          "group": "linearLens@4"
         }
       ]
     },

@@ -27,11 +27,15 @@ const DOT_PX = 10;
 const COMMAND_CHECKOUT_BRANCH = "linearLens.checkoutIssueBranch";
 const COMMAND_VIEW_BRANCH_DIFF = "linearLens.viewIssueBranchDiff";
 
+/** Command opening the V3 ticket-detail webview for an issue id. */
+const COMMAND_OPEN_TICKET = "linearLens.openTicket";
+
 /** Command ids the hover is allowed to invoke; narrows the trusted-command surface. */
 const TRUSTED_COMMANDS: readonly string[] = [
   "linearLens.configureWorkspace",
   COMMAND_CHECKOUT_BRANCH,
   COMMAND_VIEW_BRANCH_DIFF,
+  COMMAND_OPEN_TICKET,
 ];
 
 /**
@@ -125,12 +129,15 @@ export class IssueHoverProvider implements vscode.HoverProvider {
     const id = ref.issue.normalized;
 
     if (ref.kind === "url" && ref.url) {
-      md.appendMarkdown(`[**${escapeMd(id)}**](${ref.url})`);
+      md.appendMarkdown(`[**${escapeMd(id)}**](${ref.url})\n\n`);
+      md.appendMarkdown(openDetailsLink(id));
     } else if (cfg.workspaceSlug) {
       const url = issueUrl(ref.issue, cfg.workspaceSlug);
-      md.appendMarkdown(`[**${escapeMd(id)}**](${url})`);
+      md.appendMarkdown(`[**${escapeMd(id)}**](${url})\n\n`);
+      md.appendMarkdown(openDetailsLink(id));
     } else {
       md.appendMarkdown(`**${escapeMd(id)}**\n\n`);
+      md.appendMarkdown(openDetailsLink(id) + "\n\n");
       md.appendMarkdown(
         "_No workspace slug set._ " +
           "[Configure Workspace Slug](command:linearLens.configureWorkspace)",
@@ -204,10 +211,12 @@ export class IssueHoverProvider implements vscode.HoverProvider {
       md.appendMarkdown(`${checkout} · ${diff}\n\n`);
     }
 
-    // 6. Action row: open the canonical Linear issue.
+    // 6. Action row: open the in-editor detail webview, then the canonical issue.
+    const actions: string[] = [openDetailsLink(id)];
     if (url) {
-      md.appendMarkdown(`[Open in Linear](${url})`);
+      actions.push(`[Open in Linear](${url})`);
     }
+    md.appendMarkdown(actions.join(" · "));
 
     return md;
   }
@@ -268,6 +277,16 @@ function newTrustedMarkdown(): vscode.MarkdownString {
  */
 function encodeCommandArg(arg: { id: string; branchName: string }): string {
   return encodeURIComponent(JSON.stringify(arg));
+}
+
+/**
+ * Build the "Open details" command link that opens the V3 ticket-detail webview
+ * for `id`. The `{ id }` argument is JSON-stringified then `encodeURIComponent`-
+ * encoded so it round-trips through the `command:` URI.
+ */
+function openDetailsLink(id: string): string {
+  const args = encodeURIComponent(JSON.stringify({ id }));
+  return `[Open details](command:${COMMAND_OPEN_TICKET}?${args})`;
 }
 
 /** The preferred display name for a person, falling back to the internal name. */

@@ -10,6 +10,7 @@ import {
   LinearClient,
   LinearLensConfig,
   Person,
+  TicketDetail,
 } from "./types";
 import {
   MY_ISSUES_QUERY,
@@ -18,6 +19,11 @@ import {
   mapListNode,
   RawListNode,
 } from "./linear/issueMapper";
+import {
+  createTicketDetailCache,
+  fetchTicketDetail,
+  TicketDetailCache,
+} from "./ticketDetail";
 
 /** SecretStorage key under which the Linear API key is stored. */
 export const API_KEY_SECRET = "linearLens.apiKey";
@@ -157,6 +163,11 @@ export function createLinearClient(
   resolveAuth: () => Promise<AuthHeader | undefined>,
 ): LinearClient {
   const cache = new Map<string, CacheEntry>();
+  /**
+   * Separate TTL cache for the heavier {@link TicketDetail} payload so the
+   * on-demand webview fetch never shares state with the lightweight hover cache.
+   */
+  const detailCache: TicketDetailCache = createTicketDetailCache(getCfg);
   /** Cached boolean: whether the last `refreshAuth()` call found a credential. */
   let hasAuthCached = false;
 
@@ -322,8 +333,19 @@ export function createLinearClient(
       }
     },
 
+    async fetchTicketDetail(id: IssueId): Promise<TicketDetail | null> {
+      // Delegates to the heavier detail path, reusing this client's auth/config
+      // and a dedicated TTL cache. Never throws (the callee is a hard backstop).
+      return fetchTicketDetail(id, {
+        getCfg,
+        resolveAuth,
+        cache: detailCache,
+      });
+    },
+
     clearCache(): void {
       cache.clear();
+      detailCache.clear();
     },
 
     hasAuth(): boolean {

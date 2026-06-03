@@ -221,6 +221,63 @@ export interface IssueMetadata {
 }
 
 // ---------------------------------------------------------------------------
+// Ticket detail (V3 webview — heavier, on-demand fetch)
+// ---------------------------------------------------------------------------
+
+/**
+ * The FULL, normalized detail payload for a single issue, used by the on-demand
+ * webview detail panel (V3). It is a strict superset of the fields the rich
+ * hover needs: rendered-ready markdown {@link TicketDetail.description}, the
+ * complete {@link TicketDetail.comments} thread (each with author + avatar),
+ * colored {@link TicketDetail.labels}, {@link TicketDetail.attachments}, the
+ * {@link TicketDetail.assignee} and the {@link TicketDetail.collaborators} list.
+ *
+ * It deliberately mirrors {@link IssueMetadata} (so a panel can render either)
+ * but renames `subscribers` to the webview-facing `collaborators` and is
+ * produced by the heavier {@link LinearClient.fetchTicketDetail} call rather
+ * than the lightweight hover {@link LinearClient.fetchIssue}.
+ *
+ * Every field is null-tolerant at the source; the mapper fills sensible
+ * defaults (`""`, `[]`, `undefined`) so the webview never sees `null`.
+ */
+export interface TicketDetail {
+  /** Normalized identifier, e.g. "ENG-123". */
+  id: string;
+  /** Issue title (may be empty). */
+  title: string;
+  /** Canonical Linear URL. */
+  url: string;
+  /** Linear's suggested git branch name for the issue, if any. */
+  branchName?: string;
+  /** Whether the issue is archived. */
+  archived: boolean;
+  /** Human priority label, e.g. "Urgent" | "High" | "No priority". */
+  priority?: string;
+  /** Project name, if any. */
+  project?: string;
+  /** Workflow state name, e.g. "In Progress". */
+  state: string;
+  /** Workflow state type, e.g. "started" | "completed" | "canceled". */
+  stateType?: string;
+  /** Workflow state hex color (good for pills/dots), e.g. "#4CB782". */
+  stateColor?: string;
+  /** Markdown description body (empty string when none). */
+  description: string;
+  /** Issue assignee, if any. */
+  assignee?: Person;
+  /** Issue creator, if available. */
+  creator?: Person;
+  /** Collaborators / subscribers with avatars (empty array when none). */
+  collaborators: Person[];
+  /** Labels with colors (empty array when none). */
+  labels: IssueLabel[];
+  /** The full comment thread, oldest-first as Linear returns it (empty when none). */
+  comments: IssueComment[];
+  /** Attachments / links / images (empty array when none). */
+  attachments: IssueAttachment[];
+}
+
+// ---------------------------------------------------------------------------
 // Issue list / search shapes (V2)
 // ---------------------------------------------------------------------------
 
@@ -251,9 +308,20 @@ export type IssueListScope = "mine" | "recent";
  * back to basic link/hover behavior.
  */
 export interface LinearClient {
-  /** Fetch metadata for an issue, or `null` if unavailable. Never throws. */
+  /**
+   * Lightweight fetch used by hovers / inline status: returns {@link IssueMetadata}
+   * (with capped nested connections) or `null` if unavailable. Never throws.
+   */
   fetchIssue(id: IssueId): Promise<IssueMetadata | null>;
-  /** Drop all cached metadata. */
+  /**
+   * Heavier, on-demand fetch used by the detail webview: returns the full
+   * {@link TicketDetail} (the full comment thread plus all labels, attachments,
+   * and collaborators, each generously capped) or `null` if unavailable. Cached
+   * separately from {@link LinearClient.fetchIssue} so a hover never pulls the
+   * heavy payload. Never throws.
+   */
+  fetchTicketDetail(id: IssueId): Promise<TicketDetail | null>;
+  /** Drop all cached metadata (hover + detail). */
   clearCache(): void;
   /** Whether a credential is currently present and the API is enabled. */
   hasAuth(): boolean;
