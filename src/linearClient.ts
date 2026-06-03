@@ -1,4 +1,14 @@
-import { AuthHeader, IssueId, IssueMetadata, LinearClient, LinearLensConfig } from "./types";
+import {
+  AuthHeader,
+  IssueAttachment,
+  IssueComment,
+  IssueId,
+  IssueLabel,
+  IssueMetadata,
+  LinearClient,
+  LinearLensConfig,
+  Person,
+} from "./types";
 
 /** SecretStorage key under which the Linear API key is stored. */
 export const API_KEY_SECRET = "linearLens.apiKey";
@@ -7,34 +17,69 @@ export const API_KEY_SECRET = "linearLens.apiKey";
 const LINEAR_GRAPHQL_ENDPOINT = "https://api.linear.app/graphql";
 
 /**
- * GraphQL query that looks up a single issue by its team key + number.
- * Variables: `{ team: string, number: number }`.
+ * GraphQL query that looks up a single issue by its team key + number, returning
+ * the full metadata used by rich hovers. Variables: `{ team: String!, number: Float! }`.
+ *
+ * Every selected field is nullable-tolerant; {@link toMetadata} defends against
+ * missing nodes and fields. Nested connections are capped (`first: N`) so a
+ * heavily-commented issue cannot return a huge payload on every hover — the TTL
+ * cache means a hover and a later detail view share this single fetch.
  */
 const ISSUE_QUERY = `query Issue($team: String!, $number: Float!) {
   issues(filter: { team: { key: { eq: $team } }, number: { eq: $number } }, first: 1) {
     nodes {
       identifier
       title
-      state { name type }
-      assignee { name }
-      priorityLabel
-      project { name }
       url
+      branchName
       archivedAt
+      priorityLabel
+      description
+      state { name type color }
+      assignee { name displayName avatarUrl }
+      creator { name displayName avatarUrl }
+      project { name }
+      labels(first: 20) { nodes { name color } }
+      subscribers(first: 20) { nodes { name displayName avatarUrl } }
+      comments(first: 25) { nodes { id body createdAt user { name displayName avatarUrl } } }
+      attachments(first: 20) { nodes { title url } }
     }
   }
 }`;
 
-/** Shape of a single issue node returned by the GraphQL query. */
+/** Raw shape of a person node (assignee/creator/subscriber/comment author). */
+interface RawPerson {
+  name?: string | null;
+  displayName?: string | null;
+  avatarUrl?: string | null;
+}
+
+/** Raw shape of a single comment node from the query. */
+interface RawComment {
+  id?: string | null;
+  body?: string | null;
+  createdAt?: string | null;
+  /** Linear's field is `user`; we expose it as {@link IssueComment.author}. */
+  user?: RawPerson | null;
+}
+
+/** Shape of a single issue node returned by the GraphQL query (all nullable). */
 interface IssueNode {
-  identifier?: string;
-  title?: string;
-  state?: { name?: string; type?: string } | null;
-  assignee?: { name?: string } | null;
-  priorityLabel?: string | null;
-  project?: { name?: string } | null;
-  url?: string;
+  identifier?: string | null;
+  title?: string | null;
+  url?: string | null;
+  branchName?: string | null;
   archivedAt?: string | null;
+  priorityLabel?: string | null;
+  description?: string | null;
+  state?: { name?: string | null; type?: string | null; color?: string | null } | null;
+  assignee?: RawPerson | null;
+  creator?: RawPerson | null;
+  project?: { name?: string | null } | null;
+  labels?: { nodes?: Array<{ name?: string | null; color?: string | null } | null> | null } | null;
+  subscribers?: { nodes?: Array<RawPerson | null> | null } | null;
+  comments?: { nodes?: Array<RawComment | null> | null } | null;
+  attachments?: { nodes?: Array<{ title?: string | null; url?: string | null } | null> | null } | null;
 }
 
 /** Shape of the GraphQL response envelope we care about. */
@@ -80,15 +125,77 @@ export function createLinearClient(
   /** Cached boolean: whether the last `refreshAuth()` call found a credential. */
   let hasAuthCached = false;
 
+  /**
+   * Map a raw person node onto {@link Person}, or `undefined` when the node is
+   * null/empty. `displayName` falls back to `name`, then to "".
+   */
+  const mapPerson = (raw: RawPerson | null | undefined): Person | undefined => {
+    if (!raw) {
+      return undefined;
+    }
+    const name = raw.name ?? "";
+    const displayName = raw.displayName || raw.name || "";
+    if (!name && !displayName && !raw.avatarUrl) {
+      return undefined;
+    }
+    return {
+      name,
+      displayName,
+      avatarUrl: raw.avatarUrl ?? undefined,
+    };
+  };
+
+  /** Map the labels connection to {@link IssueLabel}[], dropping null entries. */
+  const mapLabels = (node: IssueNode): IssueLabel[] =>
+    (node.labels?.nodes ?? []).flatMap((label) =>
+      label ? [{ name: label.name ?? "", color: label.color ?? undefined }] : [],
+    );
+
+  /** Map the subscribers connection to {@link Person}[], dropping null entries. */
+  const mapSubscribers = (node: IssueNode): Person[] =>
+    (node.subscribers?.nodes ?? []).flatMap((raw) => {
+      const person = mapPerson(raw);
+      return person ? [person] : [];
+    });
+
+  /** Map the comments connection to {@link IssueComment}[], dropping null entries. */
+  const mapComments = (node: IssueNode): IssueComment[] =>
+    (node.comments?.nodes ?? []).flatMap((comment) =>
+      comment
+        ? [
+            {
+              id: comment.id ?? "",
+              body: comment.body ?? "",
+              createdAt: comment.createdAt ?? "",
+              author: mapPerson(comment.user),
+            },
+          ]
+        : [],
+    );
+
+  /** Map the attachments connection to {@link IssueAttachment}[], dropping null entries. */
+  const mapAttachments = (node: IssueNode): IssueAttachment[] =>
+    (node.attachments?.nodes ?? []).flatMap((attachment) =>
+      attachment ? [{ title: attachment.title ?? "", url: attachment.url ?? "" }] : [],
+    );
+
   /** Map a raw GraphQL issue node onto our {@link IssueMetadata} shape. */
   const toMetadata = (node: IssueNode): IssueMetadata => ({
     id: node.identifier ?? "",
     title: node.title ?? "",
     state: node.state?.name ?? "",
     stateType: node.state?.type ?? undefined,
-    assignee: node.assignee?.name ?? undefined,
+    stateColor: node.state?.color ?? undefined,
+    assignee: mapPerson(node.assignee),
+    creator: mapPerson(node.creator),
     priority: node.priorityLabel ?? undefined,
     project: node.project?.name ?? undefined,
+    labels: mapLabels(node),
+    subscribers: mapSubscribers(node),
+    description: node.description ?? undefined,
+    branchName: node.branchName ?? undefined,
+    comments: mapComments(node),
+    attachments: mapAttachments(node),
     url: node.url ?? "",
     archived: node.archivedAt != null,
   });

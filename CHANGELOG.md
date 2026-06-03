@@ -7,8 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.0] — Elevated hovers + inline status
+
 ### Added
 
+- **Rich hover cards** — authenticated hovers now display a full at-a-glance Linear card:
+  a color-coded workflow-state dot (using the state's actual hex color), assignee and
+  subscriber avatars, issue labels rendered with colored dots, the issue's suggested git
+  branch name, and one-click **Checkout** / **View Diff** branch-action links directly from
+  the hover.
+- **Inline status indicators** (`linearLens.inlineStatus.enable`, default `true`) — a small
+  colored dot (or labeled pill, configurable via `linearLens.inlineStatus.style`) appears
+  immediately after each issue reference in the editor, reflecting its live workflow-state
+  color. Renders nothing when unauthenticated; never shows a misleading neutral dot.
+- **Personal API key — first-class authentication path** — the README now prominently
+  documents generating a personal key in Linear → Settings → Security & access → Personal
+  API keys as the fastest, no-extra-extension way to unlock rich hovers. The key is stored
+  in VS Code's encrypted `SecretStorage` and sent only to `api.linear.app`.
+- **Hover avatar support** (`linearLens.hover.showAvatars`, default `true`) — stacked
+  assignee and subscriber avatars inline in the hover. Falls back to the display name when
+  the avatar URL is unavailable or the setting is off.
+- **Hover label support** (`linearLens.hover.showLabels`, default `true`) — issue labels
+  rendered with a colored dot beside each label name.
+- **Hover branch actions** (`linearLens.hover.showBranchActions`, default `true`) — the
+  issue's suggested git branch name shown in backticks, with Checkout and View Diff command
+  links. Branch names containing `/`, `#`, and `?` are correctly encoded in command URIs.
+- **Open in Coding Agent** action (`linearLens.agent.command`) — an optional command id or
+  auto-detected Cursor/VS Code agent command; when available, an "Open in `<agent>`" link
+  appears in the hover action row.
+- **Debug output channel** (`linearLens.debug`, default `false`) — logs GraphQL error
+  messages (operation name + message only; never tokens or issue bodies) to the
+  **Linear Lens** output channel, making the silent empty-hover failure mode diagnosable.
 - **Sign in via Linear Connect** — authenticate with your Linear account by consuming
   Linear's official *Linear Connect* extension (`linear.linear-connect`). No OAuth app to
   register, no client secret, no hosted redirect. Run **Linear Lens: Sign in to Linear**;
@@ -41,6 +70,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   distinguish them from Linear Connect sign-in.
 - The `resolveAuth` callback in the Linear client now supports both OAuth Bearer tokens and
   raw personal API keys transparently — callers do not need to differentiate.
+- Hover layout updated: title is now `[**ENG-123**](url) — <title>` (em-dash separator);
+  the old "Reference" footer text is removed.
 
 ### Removed
 
@@ -80,5 +111,6 @@ your TODOs.
 - **Commands:** Configure Workspace Slug, Open Issue…, Copy Issue Link…, Refresh Issue Cache,
   Open Current Branch Issue, Set Linear API Key, and Clear Linear API Key.
 
-[Unreleased]: https://github.com/linear-lens/linear-lens/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/linear-lens/linear-lens/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/linear-lens/linear-lens/compare/v0.1.0...v1.1.0
 [0.1.0]: https://github.com/linear-lens/linear-lens/releases/tag/v0.1.0

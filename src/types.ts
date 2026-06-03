@@ -137,7 +137,45 @@ export interface AuthHeader {
 // Linear API (optional)
 // ---------------------------------------------------------------------------
 
-/** Live issue metadata fetched from the Linear API for rich hovers. */
+/** A person reference with an optional avatar, used for assignee/creator/subscribers. */
+export interface Person {
+  /** Internal name (login-ish), may be empty. */
+  name: string;
+  /** Preferred display name; falls back to `name` when empty. */
+  displayName: string;
+  /** Absolute avatar image URL, if Linear has one. */
+  avatarUrl?: string;
+}
+
+/** A Linear label with its hex color (e.g. "#5E6AD2"). */
+export interface IssueLabel {
+  /** Label name. */
+  name: string;
+  /** Hex color string like "#RRGGBB", or undefined if unknown. */
+  color?: string;
+}
+
+/** A single comment on an issue. */
+export interface IssueComment {
+  /** Stable comment id. */
+  id: string;
+  /** Raw markdown body. */
+  body: string;
+  /** ISO-8601 creation timestamp. */
+  createdAt: string;
+  /** Comment author, if available. */
+  author?: Person;
+}
+
+/** An attachment/link/image on an issue. */
+export interface IssueAttachment {
+  /** Human-readable title for the attachment. */
+  title: string;
+  /** Absolute URL the attachment points to. */
+  url: string;
+}
+
+/** Live issue metadata fetched from the Linear API for rich hovers + the detail view. */
 export interface IssueMetadata {
   /** Normalized identifier, e.g. "ENG-123". */
   id: string;
@@ -146,12 +184,28 @@ export interface IssueMetadata {
   state: string;
   /** Workflow state type, e.g. "started" | "completed" | "canceled". */
   stateType?: string;
-  /** Assignee display name, if any. */
-  assignee?: string;
+  /** Workflow state hex color (good for pills/dots), e.g. "#4CB782". */
+  stateColor?: string;
+  /** Assignee (preferred), if any. */
+  assignee?: Person;
+  /** Issue creator, if available. */
+  creator?: Person;
   /** Human priority label, e.g. "Urgent" | "High" | "No priority". */
   priority?: string;
   /** Project name, if any. */
   project?: string;
+  /** Labels with colors (empty array when none). */
+  labels: IssueLabel[];
+  /** Subscribers / collaborators with avatars (empty array when none). */
+  subscribers: Person[];
+  /** Markdown description body (may be empty). */
+  description?: string;
+  /** Linear's suggested git branch name for the issue, if any. */
+  branchName?: string;
+  /** Comments, newest-last as Linear returns them (empty array when none). */
+  comments: IssueComment[];
+  /** Attachments/images (empty array when none). */
+  attachments: IssueAttachment[];
   /** Canonical Linear URL. */
   url: string;
   /** Whether the issue is archived. */

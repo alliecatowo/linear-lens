@@ -13,9 +13,10 @@ Linear Lens **links the tickets you already have**. It scans the text you are re
 makes every recognized issue reference actionable:
 
 - **Clickable links** — `ENG-123` becomes a document link straight to your Linear workspace.
-- **Hovers** — hover any reference to see the issue at a glance. When signed in via Linear
-  Connect or with an optional personal API key, hovers show live title, status, assignee,
-  priority, and project.
+- **Hovers** — hover any reference to see the issue at a glance. When authenticated, hovers
+  show live title, a color-coded workflow status dot, assignee and subscriber avatars, labels
+  (with their colors), git branch name with one-click Checkout and View Diff actions, priority,
+  and project.
 - **In-editor decorations** — recognized references are subtly highlighted (dotted underline)
   directly in the editor so they stand out at a glance.
 - **Problems integration** — actionable `TODO`/`FIXME`/`BUG`/`HACK` references that mention a
@@ -50,15 +51,19 @@ diagnostics.
 - Classifies each reference as actionable (`todo`) or informational (`raw`/`url`).
 - Clickable `DocumentLink`s for every reference.
 - In-editor decorations that visibly highlight all issue references.
-- Hover cards with basic info always; rich live metadata when signed in via Linear Connect or a
-  personal API key is configured.
+- Hover cards with basic info always; rich live metadata when authenticated (personal API key
+  or Linear Connect), including a color-coded workflow-state dot, assignee and subscriber
+  avatars, colored label chips, the issue's suggested git branch name, one-click Checkout /
+  View Diff branch actions, priority, and project name.
 - Problems-panel diagnostics for marker-bound references only, with configurable severity and
   custom marker keywords.
 - Status bar item for the current branch's issue, with a one-click open command.
 - Optional team-key allowlist to eliminate false positives in zero-config mode.
+- **Personal API key** as the first-class, no-extra-extension way to enable rich hovers:
+  generate one in Linear → Settings → Security & access → Personal API keys, then run
+  **Linear Lens: Set Personal API Key**. Stored in VS Code's encrypted `SecretStorage`.
 - Sign in via Linear's official *Linear Connect* extension (no OAuth app, no hosted redirect)
-  and personal API key as the simplest no-OAuth alternative; both **degrade gracefully** when
-  unavailable.
+  as an alternative OAuth path; both methods **degrade gracefully** when unavailable.
 
 ## Supported syntax
 
@@ -107,16 +112,38 @@ To use it, set your workspace slug so links resolve to the right Linear workspac
 `linearLens.workspaceSlug` in your settings. Your slug is the segment in your Linear URL,
 e.g. the `acme` in `https://linear.app/acme/...`.
 
-## Sign in with your Linear account — no OAuth app, nothing to host
+## Authentication — enabling rich hovers
 
-Run **Linear Lens: Sign in to Linear**. If Linear's official *Linear Connect* extension
-(`linear.linear-connect`) is not installed yet, Linear Lens will offer to install it with one
-click. After installation you approve the request in your browser and you are done.
+Without authentication, Linear Lens still links every issue reference, highlights it, and
+shows a hover with a clickable URL. Authentication unlocks rich hovers that show live title,
+workflow status (with a color-coded dot), assignee avatar, labels (with their colors), the
+suggested git branch name, and quick branch-action links.
 
-**Linear Connect** is Linear's own first-party extension and provides the OAuth token — Linear
-Lens never sees a client secret and hosts no redirect URI of any kind.
+Two authentication paths are available. **The personal API key path requires no third-party
+extension and works everywhere** — it is the fastest way to get started.
 
-### Sign in
+### Option A — Personal API key (recommended, no extra extension needed)
+
+A personal API key is generated directly in your Linear account and is valid for as long as
+you keep it. It works in VS Code, Cursor, and any remote or restricted workspace.
+
+1. In Linear, open **Settings → Security & access → Personal API keys** (direct URL:
+   `https://linear.app/settings/api`).
+2. Click **Create key**, give it a label (e.g. `VS Code`), and copy the generated key.
+3. In the editor, run **Linear Lens: Set Personal API Key** from the command palette and
+   paste the key. It is stored in VS Code's encrypted `SecretStorage` and sent only to
+   `api.linear.app`. It is never written to disk in plaintext.
+
+To remove a stored key, run **Linear Lens: Clear Personal API Key**.
+
+> **Tip:** after setting the key, run **Linear Lens: Refresh Issue Cache** once to drop any
+> cached unauthenticated data and immediately see rich hovers.
+
+### Option B — Linear Connect (OAuth, no client secret)
+
+If you prefer OAuth over a static key, Linear Lens can consume an OAuth token from Linear's
+official *Linear Connect* extension (`linear.linear-connect`). Linear Connect is Linear's own
+first-party extension; Linear Lens never sees a client secret and hosts no redirect URI.
 
 1. Run **Linear Lens: Sign in to Linear** from the command palette.
 2. If *Linear Connect* is not installed, click **Install Linear Connect** in the prompt (one
@@ -124,22 +151,11 @@ Lens never sees a client secret and hosts no redirect URI of any kind.
 3. Approve the request in your browser. The token is stored securely by VS Code and Linear
    Connect. You are now signed in.
 
-### Sign out
+To sign out, run **Linear Lens: Sign out of Linear**. If Linear Connect's logout command is
+available it is invoked directly; otherwise Linear Lens guides you to the Accounts menu
+(bottom-left corner → Linear → Sign Out).
 
-Run **Linear Lens: Sign out of Linear**. If Linear Connect's logout command is available it is
-invoked directly; otherwise Linear Lens guides you to the Accounts menu (bottom-left corner →
-Linear → Sign Out).
-
-### Personal API key — the simplest no-OAuth alternative
-
-If you prefer not to install Linear Connect, you can supply a personal API key instead:
-
-1. Generate a key in Linear → **Settings → Security & access → Personal API keys**.
-2. Run **Linear Lens: Set Personal API Key** and paste the key. It is stored securely in VS
-   Code's `SecretStorage` and sent only to `api.linear.app`.
-
-Run **Linear Lens: Clear Personal API Key** to remove a stored key, and
-**Linear Lens: Refresh Issue Cache** to drop cached metadata and re-read auth.
+### Fallback behavior
 
 If neither method is configured, Linear Lens **degrades gracefully** to basic link/hover
 behavior — it never throws and never blocks your editor.
@@ -181,9 +197,16 @@ All settings live under the `linearLens.*` namespace.
 | `linearLens.diagnostics.severity` | `"error" \| "warning" \| "information" \| "hint"` | `"information"` | Severity used for marker-bound Linear references in the Problems panel. |
 | `linearLens.links.enable` | `boolean` | `true` | Turn recognized issue references into clickable document links. |
 | `linearLens.hover.enable` | `boolean` | `true` | Show hover cards for issue references. |
+| `linearLens.hover.showAvatars` | `boolean` | `true` | Show stacked assignee and subscriber avatars in rich hovers. Falls back to a plain text name when the avatar URL is unavailable. |
+| `linearLens.hover.showLabels` | `boolean` | `true` | Show issue labels (with colored dots) in rich hovers. |
+| `linearLens.hover.showBranchActions` | `boolean` | `true` | Show the issue's suggested git branch name with Checkout and View Diff action links in rich hovers. |
+| `linearLens.inlineStatus.enable` | `boolean` | `true` | Show a small colored status indicator immediately after each issue reference, reflecting its live workflow state. |
+| `linearLens.inlineStatus.style` | `"dot" \| "pill"` | `"dot"` | Style of the inline status indicator: a single colored dot, or a labeled state pill. |
+| `linearLens.agent.command` | `string` | `""` | Optional command id invoked by **Open in Coding Agent**. Leave empty to auto-detect a Cursor or VS Code agent command. |
+| `linearLens.debug` | `boolean` | `false` | Log Linear Lens diagnostics (GraphQL errors, auth state) to the **Linear Lens** output channel. Tokens and issue bodies are never logged. |
 | `linearLens.decorations.enable` | `boolean` | `true` | Visibly highlight recognized issue references in the editor (dotted underline in the link color). |
 | `linearLens.statusBar.enable` | `boolean` | `true` | Show a status bar item for the Linear issue detected in the current git branch. |
-| `linearLens.api.enable` | `boolean` | `true` | Fetch live issue metadata (title, status, assignee, priority, project) for richer hovers when signed in or a personal API key is set. Acts as a master kill-switch: when off, hovers stay basic even when authenticated. |
+| `linearLens.api.enable` | `boolean` | `true` | Fetch live issue metadata for richer hovers when authenticated. Acts as a master kill-switch: when off, hovers stay basic even when a key is set. |
 | `linearLens.cache.ttlSeconds` | `number` | `300` | How long (in seconds) to cache fetched issue metadata before refetching. |
 
 ## Commands
