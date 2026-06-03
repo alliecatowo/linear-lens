@@ -1,0 +1,125 @@
+{
+  "name": "linear-lens",
+  "displayName": "Linear Lens",
+  "description": "Make Linear issue IDs like ENG-123 clickable, hoverable, and useful inside VS Code.",
+  "version": "0.1.0",
+  "publisher": "linear-lens",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "Other",
+    "Linters",
+    "Visualization"
+  ],
+  "keywords": [
+    "linear",
+    "issue",
+    "tracker",
+    "todo",
+    "links"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "linearLens.configureWorkspace",
+        "title": "Linear Lens: Configure Workspace Slug"
+      },
+      {
+        "command": "linearLens.openIssue",
+        "title": "Linear Lens: Open Issue…"
+      },
+      {
+        "command": "linearLens.copyIssueLink",
+        "title": "Linear Lens: Copy Issue Link…"
+      },
+      {
+        "command": "linearLens.refreshCache",
+        "title": "Linear Lens: Refresh Issue Cache"
+      },
+      {
+        "command": "linearLens.openCurrentBranchIssue",
+        "title": "Linear Lens: Open Current Branch Issue"
+      },
+      {
+        "command": "linearLens.setApiKey",
+        "title": "Linear Lens: Set Linear API Key"
+      },
+      {
+        "command": "linearLens.clearApiKey",
+        "title": "Linear Lens: Clear Linear API Key"
+      }
+    ],
+    "configuration": {
+      "title": "Linear Lens",
+      "properties": {
+        "linearLens.workspaceSlug": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Your Linear workspace slug, used to build issue URLs like `https://linear.app/<slug>/issue/ENG-123`. Find it in your Linear URL."
+        },
+        "linearLens.teamKeys": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "markdownDescription": "Optional allowlist of team keys to recognize (e.g. `[\"ENG\", \"DESIGN\"]`). When empty, any `ABC-123`-shaped token (2–7 uppercase letters) is treated as an issue ID."
+        },
+        "linearLens.diagnostics.enable": {
+          "type": "boolean",
+          "default": true,
+          "description": "Surface TODO/FIXME/BUG/HACK-bound Linear references in the Problems panel. Raw references in prose are never reported."
+        },
+        "linearLens.diagnostics.severity": {
+          "type": "string",
+          "enum": [
+            "error",
+            "warning",
+            "information",
+            "hint"
+          ],
+          "default": "information",
+          "description": "Severity used for TODO-bound Linear references in the Problems panel."
+        },
+        "linearLens.api.enable": {
+          "type": "boolean",
+          "default": false,
+          "markdownDescription": "Fetch live issue metadata (title, status, assignee, priority, project) from the Linear API for richer hovers. Requires an API key set via **Linear Lens: Set Linear API Key**. Falls back to basic link/hover when disabled or unavailable."
+        },
+        "linearLens.cache.ttlSeconds": {
+          "type": "number",
+          "default": 300,
+          "minimum": 0,
+          "description": "How long (in seconds) to cache fetched issue metadata before refetching."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "pnpm run build",
+    "build": "node esbuild.mjs --production",
+    "watch": "node esbuild.mjs --watch",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint src",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "package": "vsce package --no-dependencies"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/vscode": "^1.90.0",
+    "@typescript-eslint/eslint-plugin": "^8.18.0",
+    "@typescript-eslint/parser": "^8.18.0",
+    "@vscode/vsce": "^3.2.0",
+    "esbuild": "^0.24.0",
+    "eslint": "^9.17.0",
+    "typescript": "^5.7.0",
+    "vitest": "^2.1.0"
+  }
+}

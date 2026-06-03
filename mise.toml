@@ -1,3 +1,19 @@
 [tools]
-node = "latest"
-pnpm = "latest"
+node = "25"
+pnpm = "10"
+
+[env]
+# Keep VS Code extension dev tooling local to the project.
+NODE_ENV = "development"
+
+[tasks.build]
+description = "Bundle the extension with esbuild"
+run = "pnpm run build"
+
+[tasks.test]
+description = "Run parser unit tests"
+run = "pnpm run test"
+
+[tasks.check]
+description = "Typecheck, lint, and test"
+run = ["pnpm run typecheck", "pnpm run lint", "pnpm run test"]
