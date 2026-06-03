@@ -22,10 +22,10 @@ import { IssueListItem } from "../types";
 
 /**
  * Issues assigned to the viewer, most-recently-updated first.
- * Variables: `{ first: Float! }`.
+ * Variables: `{ first: Int! }`.
  */
 export const MY_ISSUES_QUERY: string = `
-query MyIssues($first: Float!) {
+query MyIssues($first: Int!) {
   viewer {
     assignedIssues(first: $first, orderBy: updatedAt) {
       nodes {
@@ -42,10 +42,10 @@ query MyIssues($first: Float!) {
 
 /**
  * Recently-updated issues across the viewer's workspace.
- * Variables: `{ first: Float! }`.
+ * Variables: `{ first: Int! }`.
  */
 export const RECENT_ISSUES_QUERY: string = `
-query RecentIssues($first: Float!) {
+query RecentIssues($first: Int!) {
   issues(first: $first, orderBy: updatedAt) {
     nodes {
       identifier
@@ -61,10 +61,10 @@ query RecentIssues($first: Float!) {
 /**
  * Full-text issue search using Linear's `searchIssues(term:)` root field.
  * MUST use `searchIssues`, NOT the deprecated `issueSearch(query:)`.
- * Variables: `{ term: String!, first: Float! }`.
+ * Variables: `{ term: String!, first: Int! }`.
  */
 export const ISSUE_SEARCH_QUERY: string = `
-query SearchIssues($term: String!, $first: Float!) {
+query SearchIssues($term: String!, $first: Int!) {
   searchIssues(term: $term, first: $first) {
     nodes {
       identifier
