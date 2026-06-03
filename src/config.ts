@@ -20,9 +20,6 @@ export const CONFIG_SECTION = "linearLens";
 /** Default metadata cache TTL, in seconds, when the setting is invalid. */
 const DEFAULT_CACHE_TTL_SECONDS = 300;
 
-/** Default loopback port for the OAuth callback when the setting is invalid. */
-const DEFAULT_REDIRECT_PORT = 7982;
-
 /** Default diagnostic severity when the setting is missing/invalid. */
 const DEFAULT_DIAGNOSTIC_SEVERITY: DiagnosticSeverityName = "information";
 
@@ -88,19 +85,6 @@ function normalizeNonNegativeNumber(value: unknown, fallback: number): number {
   return fallback;
 }
 
-/** Coerce an unknown value to a valid TCP port (1–65535), with a fallback. */
-function normalizePort(value: unknown, fallback: number): number {
-  if (
-    typeof value === "number" &&
-    Number.isInteger(value) &&
-    value >= 1 &&
-    value <= 65535
-  ) {
-    return value;
-  }
-  return fallback;
-}
-
 /**
  * Read and validate all `linearLens.*` settings into a {@link LinearLensConfig}.
  *
@@ -124,8 +108,6 @@ export function getConfig(): LinearLensConfig {
       cfg.get("cache.ttlSeconds"),
       DEFAULT_CACHE_TTL_SECONDS,
     ),
-    authClientId: toStringOr(cfg.get("auth.clientId"), "").trim(),
-    authRedirectPort: normalizePort(cfg.get("auth.redirectPort"), DEFAULT_REDIRECT_PORT),
   };
 }
 

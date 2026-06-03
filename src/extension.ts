@@ -1,10 +1,12 @@
 /**
  * Linear Lens — extension entry point.
  *
- * Wires together every module: configuration, OAuth sign-in (PKCE), the optional
- * Linear API client, document links + hovers, marker-bound diagnostics, in-editor
- * decorations, the current-branch status bar, and the contributed commands. All
- * disposables are registered on `context.subscriptions` so deactivation is a no-op.
+ * Wires together every module: configuration, the optional Linear API client,
+ * document links + hovers, marker-bound diagnostics, in-editor decorations, the
+ * current-branch status bar, and the contributed commands. Sign-in is delegated
+ * to Linear's first-party "linear" authentication provider; here we only read the
+ * resulting OAuth header (falling back to a personal API key). All disposables are
+ * registered on `context.subscriptions` so deactivation is a no-op.
  */
 
 import * as vscode from "vscode";
@@ -17,7 +19,7 @@ import { DiagnosticsManager } from "./diagnostics";
 import { BranchStatusBar } from "./branch";
 import { IssueDecorator } from "./decorations";
 import { registerCommands } from "./commands";
-import { registerLinearAuthProvider, getLinearOAuthHeader } from "./auth";
+import { getLinearOAuthHeader } from "./auth";
 import type { AuthHeader, LinearLensConfig } from "./types";
 
 /** Documents Linear Lens operates on: real files and untitled buffers. */
@@ -27,9 +29,9 @@ const DOCUMENT_SELECTOR: vscode.DocumentSelector = [
 ];
 
 /**
- * Activate Linear Lens: register the OAuth provider, wire the parser-backed
- * providers, diagnostics, decorations, branch status bar, and commands together,
- * and keep them all in sync with configuration and authentication changes.
+ * Activate Linear Lens: wire the parser-backed providers, diagnostics,
+ * decorations, branch status bar, and commands together, and keep them all in
+ * sync with configuration and authentication changes.
  *
  * @param context The extension context whose `subscriptions` own all disposables.
  */
@@ -41,9 +43,6 @@ export function activate(context: vscode.ExtensionContext): void {
   const refreshConfig = (): void => {
     cfg = getConfig();
   };
-
-  // Linear sign-in (OAuth/PKCE) registered as an AuthenticationProvider.
-  const auth = registerLinearAuthProvider(context, getCfg);
 
   // Resolve an Authorization header: prefer an OAuth session, else a personal key.
   const resolveAuth = async (): Promise<AuthHeader | undefined> => {
@@ -112,17 +111,18 @@ export function activate(context: vscode.ExtensionContext): void {
     client,
     branch,
     diagnostics,
-    auth,
     refreshConfig,
     refreshUi,
     secrets: context.secrets,
   });
 
-  // Refresh when sessions change (sign in/out).
+  // Refresh when Linear's authentication sessions change (sign in/out).
   context.subscriptions.push(
-    auth.onDidChangeSessions(() => {
-      void client.refreshAuth();
-      refreshUi();
+    vscode.authentication.onDidChangeSessions((e) => {
+      if (e.provider.id === "linear") {
+        void client.refreshAuth();
+        refreshUi();
+      }
     }),
   );
 

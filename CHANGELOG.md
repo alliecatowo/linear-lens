@@ -9,18 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **OAuth 2.0 PKCE sign-in** — authenticate with Linear directly from the editor using a
-  loopback redirect (`http://localhost:<port>/callback`). No client secret is ever needed or
-  stored; the PKCE flow handles security. Configure your Linear OAuth app's Client ID via
-  `linearLens.auth.clientId` and run **Linear Lens: Sign in to Linear**.
-- **`linearLens.auth.clientId`** setting — your Linear OAuth application's Client ID.
-- **`linearLens.auth.redirectPort`** setting (default `7982`) — local port for the OAuth
-  loopback callback. Register `http://localhost:<port>/callback` as a redirect URI in your
-  Linear OAuth app (exact match required).
+- **Sign in via Linear Connect** — authenticate with your Linear account by consuming
+  Linear's official *Linear Connect* extension (`linear.linear-connect`). No OAuth app to
+  register, no client secret, no hosted redirect. Run **Linear Lens: Sign in to Linear**;
+  if Linear Connect isn't installed yet, Linear Lens offers to install it (one click), then
+  you approve in your browser. Linear Connect is Linear's first-party extension and provides
+  the OAuth token — Linear Lens never sees a client secret and hosts no redirect URI.
 - **Sign in / Sign out / Show Authentication Status** commands (`linearLens.signIn`,
   `linearLens.signOut`, `linearLens.showAuthStatus`) — manage Linear authentication without
-  leaving the editor. **Show Authentication Status** displays the exact redirect URI to
-  register and your current sign-in state.
+  leaving the editor. **Show Authentication Status** displays whether Linear Connect is
+  installed, your current sign-in state, and whether a personal API key is configured.
 - **In-editor decorations** — all recognized issue references are now visibly highlighted with
   a dotted underline in the link color, making them stand out at a glance. Controlled by the
   new `linearLens.decorations.enable` setting (default `true`).
@@ -40,9 +38,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **`linearLens.setApiKey` / `linearLens.clearApiKey`** commands renamed to
   **Set Personal API Key** / **Clear Personal API Key** in the command palette title to
-  distinguish them from OAuth sign-in.
+  distinguish them from Linear Connect sign-in.
 - The `resolveAuth` callback in the Linear client now supports both OAuth Bearer tokens and
   raw personal API keys transparently — callers do not need to differentiate.
+
+### Removed
+
+- **Self-hosted PKCE flow** — sign-in via Linear Connect replaces the previous loopback
+  OAuth 2.0 PKCE flow. No OAuth app needs to be registered and no loopback server is run.
+- **`linearLens.auth.clientId`** setting — no longer needed; Linear Connect provides the
+  OAuth token through Linear's own app.
+- **`linearLens.auth.redirectPort`** setting — no longer needed; there is no loopback
+  redirect URI to register.
 
 ## [0.1.0] - 2026-06-02
 

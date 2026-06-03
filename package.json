@@ -152,18 +152,6 @@
           "default": 300,
           "minimum": 0,
           "description": "How long (in seconds) to cache fetched issue metadata before refetching."
-        },
-        "linearLens.auth.clientId": {
-          "type": "string",
-          "default": "",
-          "markdownDescription": "Your Linear OAuth application's **Client ID** (from Linear → Settings → API → OAuth applications). Required to sign in with Linear. No client secret is needed — Linear Lens uses the PKCE flow."
-        },
-        "linearLens.auth.redirectPort": {
-          "type": "number",
-          "default": 7982,
-          "minimum": 1,
-          "maximum": 65535,
-          "markdownDescription": "Local loopback port for the OAuth callback. Register `http://localhost:<port>/callback` as the redirect URI in your Linear OAuth application (exact match required). Run **Linear Lens: Show Authentication Status** to see the exact URL."
         }
       }
     }

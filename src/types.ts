@@ -116,10 +116,6 @@ export interface LinearLensConfig {
   enableApi: boolean;
   /** `linearLens.cache.ttlSeconds` — metadata cache TTL. */
   cacheTtlSeconds: number;
-  /** `linearLens.auth.clientId` — the user's Linear OAuth application client id. */
-  authClientId: string;
-  /** `linearLens.auth.redirectPort` — loopback port for the OAuth callback. */
-  authRedirectPort: number;
 }
 
 // ---------------------------------------------------------------------------

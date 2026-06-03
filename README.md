@@ -13,8 +13,9 @@ Linear Lens **links the tickets you already have**. It scans the text you are re
 makes every recognized issue reference actionable:
 
 - **Clickable links** — `ENG-123` becomes a document link straight to your Linear workspace.
-- **Hovers** — hover any reference to see the issue at a glance. With Linear sign-in or an
-  optional personal API key, hovers show live title, status, assignee, priority, and project.
+- **Hovers** — hover any reference to see the issue at a glance. When signed in via Linear
+  Connect or with an optional personal API key, hovers show live title, status, assignee,
+  priority, and project.
 - **In-editor decorations** — recognized references are subtly highlighted (dotted underline)
   directly in the editor so they stand out at a glance.
 - **Problems integration** — actionable `TODO`/`FIXME`/`BUG`/`HACK` references that mention a
@@ -49,14 +50,15 @@ diagnostics.
 - Classifies each reference as actionable (`todo`) or informational (`raw`/`url`).
 - Clickable `DocumentLink`s for every reference.
 - In-editor decorations that visibly highlight all issue references.
-- Hover cards with basic info always; rich live metadata when signed in or a personal API key
-  is configured.
+- Hover cards with basic info always; rich live metadata when signed in via Linear Connect or a
+  personal API key is configured.
 - Problems-panel diagnostics for marker-bound references only, with configurable severity and
   custom marker keywords.
 - Status bar item for the current branch's issue, with a one-click open command.
 - Optional team-key allowlist to eliminate false positives in zero-config mode.
-- OAuth 2.0 PKCE sign-in (no client secret required) and personal API key as a simpler
-  alternative; both **degrade gracefully** when unavailable.
+- Sign in via Linear's official *Linear Connect* extension (no OAuth app, no hosted redirect)
+  and personal API key as the simplest no-OAuth alternative; both **degrade gracefully** when
+  unavailable.
 
 ## Supported syntax
 
@@ -73,10 +75,10 @@ Linear Lens recognizes all of the following:
 | `FIXME ENG-124 handle null user` | Linked + decorated + hover + Problem (`FIXME`) |
 | `// BUG ENG-9 leaks memory` | Linked + decorated + hover + Problem (`BUG`) |
 | `# HACK ABC-1 workaround` | Linked + decorated + hover + Problem (`HACK`) |
-| `- [ ] ENG-123 fix auth redirect` | Linked + decorated + hover + Problem (unchecked task) |
+| `- [ ] ENG-123 fix auth` | Linked + decorated + hover + Problem (unchecked task) |
 | `- [x] ENG-200 done` | Linked + decorated + hover only — checked task is not actionable |
 | `https://linear.app/acme/issue/ENG-123/fix-auth` | Linked + decorated + hover (URL reference) |
-| Branch `allie/eng-123-auth-redirect` | Detected in the status bar as `ENG-123` |
+| Branch `allie/eng-123-auth` | Detected in the status bar as `ENG-123` |
 
 A marker keyword anywhere on a line makes the IDs on that line actionable, whether the ID comes
 before or after the keyword. Word boundaries are respected, so `debug` is not treated as `BUG`
@@ -105,42 +107,36 @@ To use it, set your workspace slug so links resolve to the right Linear workspac
 `linearLens.workspaceSlug` in your settings. Your slug is the segment in your Linear URL,
 e.g. the `acme` in `https://linear.app/acme/...`.
 
-## Sign in with Linear (OAuth / PKCE)
+## Sign in with your Linear account — no OAuth app, nothing to host
 
-Linear Lens supports OAuth 2.0 PKCE sign-in — **no client secret is ever needed or stored.**
-The entire flow uses a short-lived loopback server (`http://localhost:<port>/callback`) so it
-works reliably even in Cursor without any editor-scheme workarounds.
+Run **Linear Lens: Sign in to Linear**. If Linear's official *Linear Connect* extension
+(`linear.linear-connect`) is not installed yet, Linear Lens will offer to install it with one
+click. After installation you approve the request in your browser and you are done.
 
-### One-time OAuth app setup (in Linear)
-
-1. Go to **Linear → Settings → API → OAuth applications** and click **Create application**.
-2. Give it a name (e.g. "Linear Lens (local)"). Scopes: **read**.
-3. Under **Redirect URIs**, add `http://localhost:7982/callback` (or whatever port you set for
-   `linearLens.auth.redirectPort`). The URI must be an exact match.
-4. Copy the **Client ID** shown on the app's page. You do **not** need the Client Secret.
-
-> Run **Linear Lens: Show Authentication Status** at any time to see the exact redirect URI you
-> need to register, together with whether a Client ID is configured and your sign-in state.
+**Linear Connect** is Linear's own first-party extension and provides the OAuth token — Linear
+Lens never sees a client secret and hosts no redirect URI of any kind.
 
 ### Sign in
 
-1. Set `linearLens.auth.clientId` to the Client ID you copied above.
-2. Run **Linear Lens: Sign in to Linear** from the command palette.
-3. Linear opens in your browser; approve the request. Linear Lens captures the callback,
-   exchanges the code (PKCE — no secret), and stores the token securely in VS Code
-   `SecretStorage`. You are now signed in.
+1. Run **Linear Lens: Sign in to Linear** from the command palette.
+2. If *Linear Connect* is not installed, click **Install Linear Connect** in the prompt (one
+   time only). You may need to reload the window after installation.
+3. Approve the request in your browser. The token is stored securely by VS Code and Linear
+   Connect. You are now signed in.
 
 ### Sign out
 
-Run **Linear Lens: Sign out of Linear**. The stored token is revoked and removed.
+Run **Linear Lens: Sign out of Linear**. If Linear Connect's logout command is available it is
+invoked directly; otherwise Linear Lens guides you to the Accounts menu (bottom-left corner →
+Linear → Sign Out).
 
-### Personal API key as an alternative
+### Personal API key — the simplest no-OAuth alternative
 
-If you do not want to create an OAuth application, you can supply a personal API key instead:
+If you prefer not to install Linear Connect, you can supply a personal API key instead:
 
-1. Set `linearLens.api.enable` to `true`.
-2. Run **Linear Lens: Set Personal API Key** and paste a Linear personal API key. The key is
-   stored securely in VS Code's `SecretStorage` and sent only to `api.linear.app`.
+1. Generate a key in Linear → **Settings → Security & access → Personal API keys**.
+2. Run **Linear Lens: Set Personal API Key** and paste the key. It is stored securely in VS
+   Code's `SecretStorage` and sent only to `api.linear.app`.
 
 Run **Linear Lens: Clear Personal API Key** to remove a stored key, and
 **Linear Lens: Refresh Issue Cache** to drop cached metadata and re-read auth.
@@ -150,8 +146,8 @@ behavior — it never throws and never blocks your editor.
 
 ## Testing in Cursor / VS Code
 
-Linear Lens works in both VS Code and Cursor. The loopback OAuth redirect avoids any
-editor-scheme issues and works the same way in either editor.
+Linear Lens works in both VS Code and Cursor. Sign-in is handled entirely by Linear Connect
+(or your personal API key) so there are no editor-scheme workarounds needed.
 
 ### Extension Development Host (F5)
 
@@ -189,8 +185,6 @@ All settings live under the `linearLens.*` namespace.
 | `linearLens.statusBar.enable` | `boolean` | `true` | Show a status bar item for the Linear issue detected in the current git branch. |
 | `linearLens.api.enable` | `boolean` | `true` | Fetch live issue metadata (title, status, assignee, priority, project) for richer hovers when signed in or a personal API key is set. Acts as a master kill-switch: when off, hovers stay basic even when authenticated. |
 | `linearLens.cache.ttlSeconds` | `number` | `300` | How long (in seconds) to cache fetched issue metadata before refetching. |
-| `linearLens.auth.clientId` | `string` | `""` | Your Linear OAuth application's Client ID (from Linear → Settings → API → OAuth applications). Required to sign in with Linear. No client secret is needed — the PKCE flow is used. |
-| `linearLens.auth.redirectPort` | `number` | `7982` | Local loopback port for the OAuth callback. Register `http://localhost:<port>/callback` as a redirect URI in your Linear OAuth app (exact match required). Run **Show Authentication Status** to see the exact URL. |
 
 ## Commands
 
@@ -203,10 +197,10 @@ Available from the command palette (`Ctrl+Shift+P` / `Cmd+Shift+P`):
 | `linearLens.copyIssueLink` | Linear Lens: Copy Issue Link… | Copy the Linear URL for an issue ID to the clipboard. |
 | `linearLens.refreshCache` | Linear Lens: Refresh Issue Cache | Drop cached issue metadata and re-read auth. |
 | `linearLens.openCurrentBranchIssue` | Linear Lens: Open Current Branch Issue | Open the issue detected in the current git branch. |
-| `linearLens.signIn` | Linear Lens: Sign in to Linear | Authenticate with Linear via OAuth 2.0 PKCE (no client secret). Requires `linearLens.auth.clientId`. |
-| `linearLens.signOut` | Linear Lens: Sign out of Linear | Revoke and remove all stored Linear OAuth tokens. |
-| `linearLens.showAuthStatus` | Linear Lens: Show Authentication Status | Display the exact redirect URI to register, whether a Client ID is set, and your current sign-in state. |
-| `linearLens.setApiKey` | Linear Lens: Set Personal API Key | Store a Linear personal API key in VS Code SecretStorage as an alternative to OAuth sign-in. |
+| `linearLens.signIn` | Linear Lens: Sign in to Linear | Sign in via Linear's official Linear Connect extension (one-click install if needed) or use a personal API key. |
+| `linearLens.signOut` | Linear Lens: Sign out of Linear | Sign out of Linear (invokes Linear Connect's logout, or guides you to the Accounts menu). |
+| `linearLens.showAuthStatus` | Linear Lens: Show Authentication Status | Show whether Linear Connect is installed, your current sign-in state, and whether a personal API key is set. |
+| `linearLens.setApiKey` | Linear Lens: Set Personal API Key | Store a Linear personal API key in VS Code SecretStorage as an alternative to Linear Connect sign-in. |
 | `linearLens.clearApiKey` | Linear Lens: Clear Personal API Key | Remove the stored personal API key. |
 
 ## Development

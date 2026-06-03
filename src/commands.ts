@@ -2,8 +2,13 @@ import * as vscode from "vscode";
 import type { LinearLensConfig, LinearClient } from "./types";
 import type { BranchStatusBar } from "./branch";
 import type { DiagnosticsManager } from "./diagnostics";
-import type { LinearAuthProvider } from "./auth";
-import { LINEAR_AUTH_PROVIDER_ID, LINEAR_AUTH_SCOPES } from "./auth";
+import {
+  signInToLinear,
+  signOutOfLinear,
+  isLinearConnectInstalled,
+  getLinearAccountLabel,
+  LINEAR_CONNECT_EXTENSION_ID,
+} from "./auth";
 import { CONFIG_SECTION, issueUrl } from "./config";
 import { parseIssueId } from "./parser";
 import { API_KEY_SECRET } from "./linearClient";
@@ -21,8 +26,6 @@ export interface CommandDeps {
   branch: BranchStatusBar;
   /** Diagnostics manager, for forced refreshes. */
   diagnostics: DiagnosticsManager;
-  /** The Linear OAuth authentication provider. */
-  auth: LinearAuthProvider;
   /** Re-read config after a setting changes (extension.ts provides this). */
   refreshConfig: () => void;
   /** Re-apply decorations / refresh UI after an auth or cache change. */
@@ -58,7 +61,7 @@ async function openIssueUrl(issue: ReturnType<typeof parseIssueId>, cfg: LinearL
  * to `context.subscriptions` so it is cleaned up on deactivation.
  */
 export function registerCommands(context: vscode.ExtensionContext, deps: CommandDeps): void {
-  const { getCfg, client, branch, diagnostics, auth, refreshConfig, refreshUi, secrets } = deps;
+  const { getCfg, client, branch, diagnostics, refreshConfig, refreshUi, secrets } = deps;
 
   const configureWorkspace = vscode.commands.registerCommand("linearLens.configureWorkspace", async () => {
     const cfg = getCfg();
@@ -153,84 +156,74 @@ export function registerCommands(context: vscode.ExtensionContext, deps: Command
   });
 
   const signIn = vscode.commands.registerCommand("linearLens.signIn", async () => {
-    const cfg = getCfg();
-    if (!cfg.authClientId) {
-      const choice = await vscode.window.showWarningMessage(
-        "Linear Lens: set linearLens.auth.clientId to your Linear OAuth application's Client ID before signing in.",
-        "Open Settings",
-      );
-      if (choice === "Open Settings") {
-        await vscode.commands.executeCommand(
-          "workbench.action.openSettings",
-          "linearLens.auth.clientId",
-        );
-      }
-      return;
-    }
-    try {
-      const s = await vscode.authentication.getSession(
-        LINEAR_AUTH_PROVIDER_ID,
-        LINEAR_AUTH_SCOPES,
-        { createIfNone: true },
-      );
+    const session = await signInToLinear();
+    if (session) {
       await client.refreshAuth();
       refreshUi();
-      void vscode.window.showInformationMessage(`Linear Lens: signed in to Linear as ${s.account.label}.`);
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      void vscode.window.showErrorMessage(`Linear Lens: sign-in failed — ${msg}`);
+      void vscode.window.showInformationMessage(`Linear Lens: signed in to Linear as ${session.account.label}.`);
     }
   });
 
   const signOut = vscode.commands.registerCommand("linearLens.signOut", async () => {
-    await auth.signOutAll();
+    await signOutOfLinear();
     await client.refreshAuth();
     refreshUi();
-    void vscode.window.showInformationMessage("Linear Lens: signed out of Linear.");
   });
 
   const showAuthStatus = vscode.commands.registerCommand("linearLens.showAuthStatus", async () => {
-    const cfg = getCfg();
-    const redirectUri = `http://localhost:${cfg.authRedirectPort}/callback`;
-
-    const clientIdStatus = cfg.authClientId
-      ? `Client ID: \`${cfg.authClientId}\``
-      : "Client ID: **not configured** — set `linearLens.auth.clientId`";
-
-    let accountLine: string;
     try {
-      const session = await vscode.authentication.getSession(
-        LINEAR_AUTH_PROVIDER_ID,
-        LINEAR_AUTH_SCOPES,
-        { silent: true },
-      );
-      accountLine = session
-        ? `Signed in as: **${session.account.label}**`
-        : "Not signed in.";
+      const connectInstalled = isLinearConnectInstalled();
+      const accountLabel = await getLinearAccountLabel();
+      const hasApiKey = !!(await secrets.get(API_KEY_SECRET));
+
+      const signedIn = accountLabel !== undefined;
+
+      let statusLine: string;
+      if (signedIn) {
+        statusLine = `Signed in as: **${accountLabel}**`;
+      } else if (hasApiKey) {
+        statusLine = "Not signed in via OAuth. Personal API key is set.";
+      } else {
+        statusLine = "Not signed in. No personal API key set.";
+      }
+
+      const connectLine = connectInstalled
+        ? "Linear Connect extension: installed."
+        : "Linear Connect extension: **not installed** — required for OAuth sign-in.";
+
+      const message = [statusLine, connectLine].join("\n\n");
+
+      // Build button list based on state
+      const buttons: string[] = [];
+      if (signedIn) {
+        buttons.push("Sign out");
+      } else {
+        buttons.push("Sign in");
+      }
+      if (!connectInstalled) {
+        buttons.push("Install Linear Connect");
+      }
+      buttons.push("Set Personal API Key");
+      buttons.push("Open Settings");
+
+      const choice = await vscode.window.showInformationMessage(message, ...buttons);
+
+      if (choice === "Sign in") {
+        await vscode.commands.executeCommand("linearLens.signIn");
+      } else if (choice === "Sign out") {
+        await vscode.commands.executeCommand("linearLens.signOut");
+      } else if (choice === "Install Linear Connect") {
+        await vscode.commands.executeCommand(
+          "workbench.extensions.installExtension",
+          LINEAR_CONNECT_EXTENSION_ID,
+        );
+      } else if (choice === "Set Personal API Key") {
+        await vscode.commands.executeCommand("linearLens.setApiKey");
+      } else if (choice === "Open Settings") {
+        await vscode.commands.executeCommand("workbench.action.openSettings", "linearLens");
+      }
     } catch {
-      accountLine = "Not signed in.";
-    }
-
-    const message = [
-      `Redirect URI (register this in your Linear OAuth app): \`${redirectUri}\``,
-      clientIdStatus,
-      accountLine,
-    ].join("\n\n");
-
-    const choice = await vscode.window.showInformationMessage(
-      message,
-      "Copy Redirect URI",
-      "Open Settings",
-    );
-
-    if (choice === "Copy Redirect URI") {
-      await vscode.env.clipboard.writeText(redirectUri);
-      void vscode.window.showInformationMessage(`Linear Lens: copied redirect URI to clipboard.`);
-    } else if (choice === "Open Settings") {
-      await vscode.commands.executeCommand(
-        "workbench.action.openSettings",
-        "linearLens.auth",
-      );
+      // Never throw from showAuthStatus
     }
   });
 
