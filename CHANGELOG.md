@@ -90,8 +90,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   distinguish them from Linear Connect sign-in.
 - The `resolveAuth` callback in the Linear client now supports both OAuth Bearer tokens and
   raw personal API keys transparently — callers do not need to differentiate.
-- Hover layout updated: title is now `[**ENG-123**](url) — <title>` (em-dash separator);
-  the old "Reference" footer text is removed.
+- Hover layout updated: the issue id links to its Linear URL and the ticket title is shown on
+  its own line (em-dash separator); the old "Reference" footer text is removed.
 
 ### Removed
 
