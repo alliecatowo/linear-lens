@@ -4,11 +4,20 @@ import {
   IssueComment,
   IssueId,
   IssueLabel,
+  IssueListItem,
+  IssueListScope,
   IssueMetadata,
   LinearClient,
   LinearLensConfig,
   Person,
 } from "./types";
+import {
+  MY_ISSUES_QUERY,
+  RECENT_ISSUES_QUERY,
+  ISSUE_SEARCH_QUERY,
+  mapListNode,
+  RawListNode,
+} from "./linear/issueMapper";
 
 /** SecretStorage key under which the Linear API key is stored. */
 export const API_KEY_SECRET = "linearLens.apiKey";
@@ -88,6 +97,32 @@ interface IssueQueryResponse {
     issues?: {
       nodes?: IssueNode[];
     } | null;
+  } | null;
+  errors?: unknown;
+}
+
+/** Shape of the MY_ISSUES_QUERY response. */
+interface MyIssuesResponse {
+  data?: {
+    viewer?: {
+      assignedIssues?: { nodes?: RawListNode[] | null } | null;
+    } | null;
+  } | null;
+  errors?: unknown;
+}
+
+/** Shape of the RECENT_ISSUES_QUERY response. */
+interface RecentIssuesResponse {
+  data?: {
+    issues?: { nodes?: RawListNode[] | null } | null;
+  } | null;
+  errors?: unknown;
+}
+
+/** Shape of the ISSUE_SEARCH_QUERY response. */
+interface SearchIssuesResponse {
+  data?: {
+    searchIssues?: { nodes?: RawListNode[] | null } | null;
   } | null;
   errors?: unknown;
 }
@@ -302,6 +337,113 @@ export function createLinearClient(
         hasAuthCached = (await resolveAuth()) !== undefined;
       } catch {
         hasAuthCached = false;
+      }
+    },
+
+    async listIssues(scope: IssueListScope, limit: number): Promise<IssueListItem[]> {
+      try {
+        if (!getCfg().enableApi) {
+          return [];
+        }
+        const auth = await resolveAuth();
+        if (!auth) {
+          return [];
+        }
+
+        const query = scope === "mine" ? MY_ISSUES_QUERY : RECENT_ISSUES_QUERY;
+
+        let response: Response;
+        try {
+          response = await fetch(LINEAR_GRAPHQL_ENDPOINT, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: auth.value,
+            },
+            body: JSON.stringify({ query, variables: { first: limit } }),
+          });
+        } catch {
+          return [];
+        }
+
+        if (!response.ok) {
+          return [];
+        }
+
+        let json: MyIssuesResponse | RecentIssuesResponse;
+        try {
+          json = (await response.json()) as MyIssuesResponse | RecentIssuesResponse;
+        } catch {
+          return [];
+        }
+
+        if (json.errors) {
+          return [];
+        }
+
+        let rawNodes: RawListNode[] | null | undefined;
+        if (scope === "mine") {
+          rawNodes = (json as MyIssuesResponse).data?.viewer?.assignedIssues?.nodes;
+        } else {
+          rawNodes = (json as RecentIssuesResponse).data?.issues?.nodes;
+        }
+
+        return (rawNodes ?? []).map(mapListNode);
+      } catch {
+        return [];
+      }
+    },
+
+    async searchIssues(query: string, limit: number): Promise<IssueListItem[]> {
+      try {
+        const term = query.trim();
+        if (!term) {
+          return [];
+        }
+        if (!getCfg().enableApi) {
+          return [];
+        }
+        const auth = await resolveAuth();
+        if (!auth) {
+          return [];
+        }
+
+        let response: Response;
+        try {
+          response = await fetch(LINEAR_GRAPHQL_ENDPOINT, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: auth.value,
+            },
+            body: JSON.stringify({
+              query: ISSUE_SEARCH_QUERY,
+              variables: { term, first: limit },
+            }),
+          });
+        } catch {
+          return [];
+        }
+
+        if (!response.ok) {
+          return [];
+        }
+
+        let json: SearchIssuesResponse;
+        try {
+          json = (await response.json()) as SearchIssuesResponse;
+        } catch {
+          return [];
+        }
+
+        if (json.errors) {
+          return [];
+        }
+
+        const rawNodes = json.data?.searchIssues?.nodes;
+        return (rawNodes ?? []).map(mapListNode);
+      } catch {
+        return [];
       }
     },
   };

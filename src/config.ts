@@ -66,6 +66,26 @@ function normalizeKeyList(value: unknown, fallback: string[] = []): string[] {
   return result.length > 0 ? result : [...fallback];
 }
 
+/** The valid `linearLens.inlineStatus.style` enum values. */
+const INLINE_STATUS_STYLES: readonly ["dot", "pill"] = ["dot", "pill"];
+
+/** Default inline status style when the setting is missing/invalid. */
+const DEFAULT_INLINE_STATUS_STYLE: "dot" | "pill" = "dot";
+
+/**
+ * Validate an unknown value against the inline-status style enum, defaulting to
+ * {@link DEFAULT_INLINE_STATUS_STYLE} ("dot") for anything unrecognized.
+ */
+function normalizeInlineStyle(value: unknown): "dot" | "pill" {
+  if (
+    typeof value === "string" &&
+    (INLINE_STATUS_STYLES as readonly string[]).includes(value)
+  ) {
+    return value as "dot" | "pill";
+  }
+  return DEFAULT_INLINE_STATUS_STYLE;
+}
+
 /** Validate an unknown value against the diagnostic-severity enum. */
 function normalizeSeverity(value: unknown): DiagnosticSeverityName {
   if (
@@ -83,6 +103,27 @@ function normalizeNonNegativeNumber(value: unknown, fallback: number): number {
     return value;
   }
   return fallback;
+}
+
+/** Default list limit for the views when `views.recent.limit` is unset/invalid. */
+const DEFAULT_VIEWS_RECENT_LIMIT = 25;
+
+/** Lowest / highest list limit accepted for `views.recent.limit`. */
+const MIN_VIEWS_RECENT_LIMIT = 1;
+const MAX_VIEWS_RECENT_LIMIT = 100;
+
+/**
+ * Coerce an unknown value into an integer clamped to `[1, 100]`, defaulting to
+ * {@link DEFAULT_VIEWS_RECENT_LIMIT} when missing or invalid. Never throws.
+ */
+function normalizeListLimit(value: unknown): number {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return Math.min(
+      MAX_VIEWS_RECENT_LIMIT,
+      Math.max(MIN_VIEWS_RECENT_LIMIT, Math.floor(value)),
+    );
+  }
+  return DEFAULT_VIEWS_RECENT_LIMIT;
 }
 
 /**
@@ -108,6 +149,10 @@ export function getConfig(): LinearLensConfig {
       cfg.get("cache.ttlSeconds"),
       DEFAULT_CACHE_TTL_SECONDS,
     ),
+    enableInlineStatus: toBooleanOr(cfg.get("inlineStatus.enable"), true),
+    inlineStatusStyle: normalizeInlineStyle(cfg.get("inlineStatus.style")),
+    enableViews: toBooleanOr(cfg.get("views.enable"), true),
+    viewsRecentLimit: normalizeListLimit(cfg.get("views.recent.limit")),
   };
 }
 

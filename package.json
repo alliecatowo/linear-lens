@@ -75,6 +75,210 @@
         "command": "linearLens.clearApiKey",
         "title": "Clear Personal API Key",
         "category": "Linear Lens"
+      },
+      {
+        "command": "linearLens.searchIssues",
+        "title": "Go to Linear Issue…",
+        "category": "Linear Lens",
+        "icon": "$(search)"
+      },
+      {
+        "command": "linearLens.refreshViews",
+        "title": "Refresh Linear Views",
+        "category": "Linear Lens",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "linearLens.jumpToNextReference",
+        "title": "Jump to Next Reference",
+        "category": "Linear Lens"
+      },
+      {
+        "command": "linearLens.jumpToPreviousReference",
+        "title": "Jump to Previous Reference",
+        "category": "Linear Lens"
+      },
+      {
+        "command": "linearLens.revealInLinearView",
+        "title": "Reveal in Linear View",
+        "category": "Linear Lens"
+      },
+      {
+        "command": "linearLens.copyIssueId",
+        "title": "Copy Issue ID",
+        "category": "Linear Lens"
+      },
+      {
+        "command": "linearLens.revealFileRef",
+        "title": "Reveal File Reference",
+        "category": "Linear Lens"
+      },
+      {
+        "command": "linearLens.checkoutBranch",
+        "title": "Checkout Issue Branch",
+        "category": "Linear Lens"
+      },
+      {
+        "command": "linearLens.openBranchDiff",
+        "title": "Open Issue Branch Diff",
+        "category": "Linear Lens"
+      },
+      {
+        "command": "linearLens.openInAgent",
+        "title": "Open in Coding Agent",
+        "category": "Linear Lens"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "linearLens",
+          "title": "Linear Lens",
+          "icon": "media/linear.svg"
+        }
+      ]
+    },
+    "views": {
+      "linearLens": [
+        {
+          "id": "linearLens.viewFile",
+          "name": "Issues in This File"
+        },
+        {
+          "id": "linearLens.viewMine",
+          "name": "My Issues"
+        },
+        {
+          "id": "linearLens.viewRecent",
+          "name": "Assigned / Recent"
+        }
+      ]
+    },
+    "menus": {
+      "commandPalette": [
+        {
+          "command": "linearLens.revealFileRef",
+          "when": "false"
+        },
+        {
+          "command": "linearLens.checkoutBranch",
+          "when": "false"
+        },
+        {
+          "command": "linearLens.openBranchDiff",
+          "when": "false"
+        },
+        {
+          "command": "linearLens.openInAgent",
+          "when": "false"
+        }
+      ],
+      "view/title": [
+        {
+          "command": "linearLens.refreshViews",
+          "when": "view == linearLens.viewFile || view == linearLens.viewMine || view == linearLens.viewRecent",
+          "group": "navigation"
+        },
+        {
+          "command": "linearLens.searchIssues",
+          "when": "view == linearLens.viewMine || view == linearLens.viewRecent",
+          "group": "navigation"
+        },
+        {
+          "command": "linearLens.signIn",
+          "when": "(view == linearLens.viewMine || view == linearLens.viewRecent) && !linearLens.authed",
+          "group": "1_auth"
+        },
+        {
+          "command": "linearLens.signOut",
+          "when": "(view == linearLens.viewMine || view == linearLens.viewRecent) && linearLens.authed",
+          "group": "1_auth"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "linearLens.openIssue",
+          "when": "viewItem == linearIssue",
+          "group": "inline"
+        },
+        {
+          "command": "linearLens.copyIssueLink",
+          "when": "viewItem == linearIssue",
+          "group": "1_open@1"
+        },
+        {
+          "command": "linearLens.copyIssueId",
+          "when": "viewItem == linearIssue",
+          "group": "1_open@2"
+        },
+        {
+          "command": "linearLens.checkoutBranch",
+          "when": "viewItem == linearIssue",
+          "group": "2_git@1"
+        },
+        {
+          "command": "linearLens.openInAgent",
+          "when": "viewItem == linearIssue",
+          "group": "2_git@2"
+        }
+      ],
+      "editor/context": [
+        {
+          "command": "linearLens.openIssue",
+          "when": "editorTextFocus && linearLens.refUnderCursor",
+          "group": "linearLens@1"
+        },
+        {
+          "command": "linearLens.copyIssueId",
+          "when": "editorTextFocus && linearLens.refUnderCursor",
+          "group": "linearLens@2"
+        },
+        {
+          "command": "linearLens.revealInLinearView",
+          "when": "editorTextFocus && linearLens.refUnderCursor",
+          "group": "linearLens@3"
+        }
+      ]
+    },
+    "viewsWelcome": [
+      {
+        "view": "linearLens.viewMine",
+        "contents": "Sign in to Linear to see issues assigned to you.\n[Sign in to Linear](command:linearLens.signIn)\nOr [set a personal API key](command:linearLens.setApiKey).",
+        "when": "!linearLens.authed"
+      },
+      {
+        "view": "linearLens.viewRecent",
+        "contents": "Sign in to Linear to see recent issues.\n[Sign in to Linear](command:linearLens.signIn)",
+        "when": "!linearLens.authed"
+      },
+      {
+        "view": "linearLens.viewFile",
+        "contents": "No Linear references found in the active file.\nOpen a file that mentions issues like ENG-123, or [configure your workspace slug](command:linearLens.configureWorkspace)."
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "linearLens.openIssue",
+        "key": "ctrl+alt+l",
+        "mac": "cmd+alt+l",
+        "when": "editorTextFocus"
+      },
+      {
+        "command": "linearLens.searchIssues",
+        "key": "ctrl+alt+f",
+        "mac": "cmd+alt+f"
+      },
+      {
+        "command": "linearLens.jumpToNextReference",
+        "key": "ctrl+alt+]",
+        "mac": "cmd+alt+]",
+        "when": "editorTextFocus && linearLens.hasRefs"
+      },
+      {
+        "command": "linearLens.jumpToPreviousReference",
+        "key": "ctrl+alt+[",
+        "mac": "cmd+alt+[",
+        "when": "editorTextFocus && linearLens.hasRefs"
       }
     ],
     "configuration": {
@@ -152,6 +356,37 @@
           "default": 300,
           "minimum": 0,
           "description": "How long (in seconds) to cache fetched issue metadata before refetching."
+        },
+        "linearLens.inlineStatus.enable": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show a small colored status indicator next to each issue reference, reflecting the live workflow state. Requires sign-in / a personal API key."
+        },
+        "linearLens.inlineStatus.style": {
+          "type": "string",
+          "enum": [
+            "dot",
+            "pill"
+          ],
+          "default": "dot",
+          "description": "Inline status style: a colored dot or a labeled state pill."
+        },
+        "linearLens.views.enable": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show the Linear Activity Bar views (issues in this file, my issues, assigned / recent)."
+        },
+        "linearLens.views.recent.limit": {
+          "type": "number",
+          "default": 25,
+          "minimum": 1,
+          "maximum": 100,
+          "description": "How many issues to load in the My Issues / Assigned / Recent and search views."
+        },
+        "linearLens.agent.command": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Optional command id invoked by **Open in Coding Agent**. Leave empty to auto-detect a Cursor / VS Code agent command."
         }
       }
     }

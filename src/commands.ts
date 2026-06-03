@@ -1,7 +1,10 @@
 import * as vscode from "vscode";
-import type { LinearLensConfig, LinearClient } from "./types";
+import type { IssueId, IssueRef, LinearLensConfig, LinearClient } from "./types";
 import type { BranchStatusBar } from "./branch";
 import type { DiagnosticsManager } from "./diagnostics";
+import type { FileIssuesProvider } from "./views/fileIssuesProvider";
+import type { IssueListProvider } from "./views/issueListProvider";
+import type { LinearTreeNode } from "./views/issueTreeModel";
 import {
   signInToLinear,
   signOutOfLinear,
@@ -10,7 +13,8 @@ import {
   LINEAR_CONNECT_EXTENSION_ID,
 } from "./auth";
 import { CONFIG_SECTION, issueUrl } from "./config";
-import { parseIssueId } from "./parser";
+import { parseIssueId, scanText } from "./parser";
+import { goToIssue } from "./search/issueQuickPick";
 import { API_KEY_SECRET } from "./linearClient";
 
 /**
@@ -32,6 +36,76 @@ export interface CommandDeps {
   refreshUi: () => void;
   /** SecretStorage for API key commands. */
   secrets: vscode.SecretStorage;
+  /** The Activity Bar tree views, for refresh / reveal commands. */
+  views: ViewDeps;
+}
+
+/** The Activity Bar tree providers + the file tree view handle (spec V2 §7). */
+export interface ViewDeps {
+  /** "Issues in This File" provider. */
+  file: FileIssuesProvider;
+  /** "My Issues" provider (scope "mine"). */
+  mine: IssueListProvider;
+  /** "Assigned / Recent" provider (scope "recent"). */
+  recent: IssueListProvider;
+  /** The file tree view handle, needed to `reveal()` a node. */
+  fileTreeView: vscode.TreeView<LinearTreeNode>;
+}
+
+/**
+ * An issue argument passed by a tree node or another command — carries a
+ * normalized id and (optionally) a canonical URL. Loosely typed because it
+ * crosses the command boundary; {@link asIssueArg} validates it.
+ */
+interface IssueArg {
+  /** Normalized issue id, e.g. "ENG-123". */
+  id: string;
+  /** Canonical Linear URL, when the caller already resolved one. */
+  url?: string;
+}
+
+/**
+ * Validate a loosely-typed command argument into an {@link IssueArg}. Returns
+ * `null` when there is no usable id. Accepts either a bare id string or an
+ * `{ id, url }` object (as the tree nodes pass). Never throws.
+ */
+function asIssueArg(raw: unknown): IssueArg | null {
+  if (typeof raw === "string") {
+    const id = raw.trim();
+    return id ? { id } : null;
+  }
+  if (typeof raw === "object" && raw !== null) {
+    const candidate = raw as { id?: unknown; url?: unknown };
+    const id = typeof candidate.id === "string" ? candidate.id.trim() : "";
+    if (!id) {
+      return null;
+    }
+    const url = typeof candidate.url === "string" ? candidate.url.trim() : undefined;
+    return { id, url: url || undefined };
+  }
+  return null;
+}
+
+/**
+ * Find the recognized Linear reference whose token contains (or is nearest after)
+ * the given offset in the active editor's document. Used by the editor-context
+ * and reveal commands. Returns `null` when there is no reference at the cursor.
+ */
+function refUnderCursor(
+  document: vscode.TextDocument,
+  offset: number,
+  cfg: LinearLensConfig,
+): IssueRef | null {
+  const refs = scanText(document.getText(), {
+    teamKeys: cfg.teamKeys,
+    markers: cfg.markers,
+  });
+  for (const ref of refs) {
+    if (offset >= ref.start && offset <= ref.end) {
+      return ref;
+    }
+  }
+  return null;
 }
 
 /**
@@ -61,7 +135,14 @@ async function openIssueUrl(issue: ReturnType<typeof parseIssueId>, cfg: LinearL
  * to `context.subscriptions` so it is cleaned up on deactivation.
  */
 export function registerCommands(context: vscode.ExtensionContext, deps: CommandDeps): void {
-  const { getCfg, client, branch, diagnostics, refreshConfig, refreshUi, secrets } = deps;
+  const { getCfg, client, branch, diagnostics, refreshConfig, refreshUi, secrets, views } = deps;
+
+  /** Refresh all three Activity Bar tree views. */
+  const refreshViewsAll = (): void => {
+    views.file.refresh();
+    views.mine.refresh();
+    views.recent.refresh();
+  };
 
   const configureWorkspace = vscode.commands.registerCommand("linearLens.configureWorkspace", async () => {
     const cfg = getCfg();
@@ -87,8 +168,24 @@ export function registerCommands(context: vscode.ExtensionContext, deps: Command
     );
   });
 
-  const openIssue = vscode.commands.registerCommand("linearLens.openIssue", async () => {
+  const openIssue = vscode.commands.registerCommand("linearLens.openIssue", async (arg?: unknown) => {
     const cfg = getCfg();
+
+    // Tree nodes (and other commands) pass `{ id, url }`; honor it directly so a
+    // node click opens the canonical URL without re-prompting.
+    const fromArg = asIssueArg(arg);
+    if (fromArg) {
+      if (fromArg.url) {
+        await vscode.env.openExternal(vscode.Uri.parse(fromArg.url));
+        return;
+      }
+      const parsed = parseIssueId(fromArg.id, { teamKeys: cfg.teamKeys });
+      if (parsed) {
+        await openIssueUrl(parsed, cfg);
+        return;
+      }
+    }
+
     const input = await vscode.window.showInputBox({
       title: "Linear Lens: Open Issue",
       prompt: "Enter a Linear issue id to open.",
@@ -106,14 +203,23 @@ export function registerCommands(context: vscode.ExtensionContext, deps: Command
     await openIssueUrl(issue, cfg);
   });
 
-  const copyIssueLink = vscode.commands.registerCommand("linearLens.copyIssueLink", async () => {
+  const copyIssueLink = vscode.commands.registerCommand("linearLens.copyIssueLink", async (arg?: unknown) => {
     const cfg = getCfg();
-    const input = await vscode.window.showInputBox({
+
+    // Tree nodes pass `{ id, url }`; copy the canonical URL straight away.
+    const fromArg = asIssueArg(arg);
+    if (fromArg?.url) {
+      await vscode.env.clipboard.writeText(fromArg.url);
+      void vscode.window.showInformationMessage(`Linear Lens: copied link to ${fromArg.id}.`);
+      return;
+    }
+
+    const input = fromArg?.id ?? (await vscode.window.showInputBox({
       title: "Linear Lens: Copy Issue Link",
       prompt: "Enter a Linear issue id to copy a link for.",
       placeHolder: "ENG-123",
       ignoreFocusOut: true,
-    });
+    }));
     if (input === undefined) {
       return;
     }
@@ -143,6 +249,7 @@ export function registerCommands(context: vscode.ExtensionContext, deps: Command
     branch.refresh();
     await client.refreshAuth();
     refreshUi();
+    refreshViewsAll();
     void vscode.window.showInformationMessage("Linear Lens: issue cache refreshed.");
   });
 
@@ -267,7 +374,152 @@ export function registerCommands(context: vscode.ExtensionContext, deps: Command
     await secrets.delete(API_KEY_SECRET);
     await client.refreshAuth();
     refreshUi();
+    refreshViewsAll();
     void vscode.window.showInformationMessage("Linear Lens: Linear API key cleared.");
+  });
+
+  // --- V2: search / navigation / view commands -----------------------------
+
+  /** Open the fuzzy "Go to Linear Issue" quick-pick (search + recent + open by id). */
+  const searchIssues = vscode.commands.registerCommand("linearLens.searchIssues", async () => {
+    await goToIssue(getCfg, client);
+  });
+
+  /** Manually refresh all three Activity Bar tree views. */
+  const refreshViews = vscode.commands.registerCommand("linearLens.refreshViews", () => {
+    refreshViewsAll();
+  });
+
+  /**
+   * Reveal a file reference (arg-only, palette-hidden): open the active document
+   * at the given 0-based line and place the cursor there. Tolerates missing args.
+   */
+  const revealFileRef = vscode.commands.registerCommand("linearLens.revealFileRef", async (arg?: unknown) => {
+    const line = readLineArg(arg);
+    if (line === undefined) {
+      return;
+    }
+    const editor = vscode.window.activeTextEditor;
+    if (!editor) {
+      return;
+    }
+    const clamped = Math.max(0, Math.min(line, editor.document.lineCount - 1));
+    const pos = new vscode.Position(clamped, 0);
+    const range = new vscode.Range(pos, pos);
+    editor.selection = new vscode.Selection(pos, pos);
+    editor.revealRange(range, vscode.TextEditorRevealType.InCenterIfOutsideViewport);
+  });
+
+  /** Jump the cursor to the next Linear reference after it (wraps to the top). */
+  const jumpToNextReference = vscode.commands.registerCommand("linearLens.jumpToNextReference", () => {
+    jumpToReference("next");
+  });
+
+  /** Jump the cursor to the previous Linear reference before it (wraps to the bottom). */
+  const jumpToPreviousReference = vscode.commands.registerCommand("linearLens.jumpToPreviousReference", () => {
+    jumpToReference("previous");
+  });
+
+  /**
+   * Move the active editor's cursor to the reference after/before its current
+   * position, wrapping around the document. No network. Never throws.
+   */
+  function jumpToReference(direction: "next" | "previous"): void {
+    const editor = vscode.window.activeTextEditor;
+    if (!editor) {
+      return;
+    }
+    const cfg = getCfg();
+    const document = editor.document;
+    const refs = scanText(document.getText(), { teamKeys: cfg.teamKeys, markers: cfg.markers });
+    if (refs.length === 0) {
+      void vscode.window.showInformationMessage("Linear Lens: no Linear references in this file.");
+      return;
+    }
+    const cursor = document.offsetAt(editor.selection.active);
+
+    let target: IssueRef | undefined;
+    if (direction === "next") {
+      target = refs.find((ref) => ref.start > cursor) ?? refs[0];
+    } else {
+      for (let i = refs.length - 1; i >= 0; i--) {
+        if (refs[i].start < cursor) {
+          target = refs[i];
+          break;
+        }
+      }
+      target = target ?? refs[refs.length - 1];
+    }
+
+    const start = document.positionAt(target.start);
+    const end = document.positionAt(target.end);
+    editor.selection = new vscode.Selection(start, end);
+    editor.revealRange(new vscode.Range(start, end), vscode.TextEditorRevealType.InCenterIfOutsideViewport);
+  }
+
+  /**
+   * Copy the normalized issue id to the clipboard. Resolves the id from a passed
+   * `{ id }`/string arg (tree node) or the reference under the cursor.
+   */
+  const copyIssueId = vscode.commands.registerCommand("linearLens.copyIssueId", async (arg?: unknown) => {
+    const cfg = getCfg();
+    const fromArg = asIssueArg(arg);
+    let id: string | undefined = fromArg?.id;
+
+    if (!id) {
+      const editor = vscode.window.activeTextEditor;
+      if (editor) {
+        const offset = editor.document.offsetAt(editor.selection.active);
+        const ref = refUnderCursor(editor.document, offset, cfg);
+        id = ref?.issue.normalized;
+      }
+    }
+
+    if (!id) {
+      void vscode.window.showWarningMessage("Linear Lens: no Linear issue id at the cursor.");
+      return;
+    }
+
+    // Normalize loose ids (e.g. lowercase from a tree label) when possible.
+    const parsed = parseIssueId(id, { teamKeys: cfg.teamKeys });
+    const normalized = parsed?.normalized ?? id;
+    await vscode.env.clipboard.writeText(normalized);
+    void vscode.window.showInformationMessage(`Linear Lens: copied ${normalized}.`);
+  });
+
+  /**
+   * Reveal the issue under the cursor in the "Issues in This File" view. Focuses
+   * the view and reveals the matching file-ref node when present.
+   */
+  const revealInLinearView = vscode.commands.registerCommand("linearLens.revealInLinearView", async (arg?: unknown) => {
+    const cfg = getCfg();
+    const fromArg = asIssueArg(arg);
+    let id: IssueId | null = fromArg ? parseIssueId(fromArg.id, { teamKeys: cfg.teamKeys }) : null;
+
+    if (!id) {
+      const editor = vscode.window.activeTextEditor;
+      if (editor) {
+        const offset = editor.document.offsetAt(editor.selection.active);
+        const ref = refUnderCursor(editor.document, offset, cfg);
+        id = ref?.issue ?? null;
+      }
+    }
+
+    if (!id) {
+      void vscode.window.showWarningMessage("Linear Lens: no Linear issue id at the cursor.");
+      return;
+    }
+
+    try {
+      // Focus the file view; its children reflect the active editor's refs.
+      await vscode.commands.executeCommand("linearLens.viewFile.focus");
+      const node = await findFileNode(views.file, id.normalized);
+      if (node) {
+        await views.fileTreeView.reveal(node, { select: true, focus: true });
+      }
+    } catch {
+      // Reveal is best-effort; focusing the view is enough on failure.
+    }
   });
 
   context.subscriptions.push(
@@ -281,5 +533,45 @@ export function registerCommands(context: vscode.ExtensionContext, deps: Command
     showAuthStatus,
     setApiKey,
     clearApiKey,
+    searchIssues,
+    refreshViews,
+    revealFileRef,
+    jumpToNextReference,
+    jumpToPreviousReference,
+    copyIssueId,
+    revealInLinearView,
   );
+}
+
+/** Extract a 0-based line number from a `{ line }` reveal arg. */
+function readLineArg(raw: unknown): number | undefined {
+  if (typeof raw === "number" && Number.isFinite(raw)) {
+    return Math.floor(raw);
+  }
+  if (typeof raw === "object" && raw !== null) {
+    const candidate = (raw as { line?: unknown }).line;
+    if (typeof candidate === "number" && Number.isFinite(candidate)) {
+      return Math.floor(candidate);
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Find the root file-ref node matching `id` in the file view's current children,
+ * for `TreeView.reveal`. Returns `undefined` when not present. Never throws.
+ */
+async function findFileNode(
+  provider: FileIssuesProvider,
+  id: string,
+): Promise<LinearTreeNode | undefined> {
+  try {
+    const children = await Promise.resolve(provider.getChildren());
+    if (!children) {
+      return undefined;
+    }
+    return children.find((node) => node.kind === "fileRef" && node.id === id);
+  } catch {
+    return undefined;
+  }
 }

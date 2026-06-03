@@ -116,6 +116,14 @@ export interface LinearLensConfig {
   enableApi: boolean;
   /** `linearLens.cache.ttlSeconds` — metadata cache TTL. */
   cacheTtlSeconds: number;
+  /** `linearLens.inlineStatus.enable` — toggle the inline state dot/pill after each ref. */
+  enableInlineStatus: boolean;
+  /** `linearLens.inlineStatus.style` — inline status indicator style ("dot" | "pill"). */
+  inlineStatusStyle: "dot" | "pill";
+  /** `linearLens.views.enable` — show the Linear Activity Bar tree views. */
+  enableViews: boolean;
+  /** `linearLens.views.recent.limit` — how many issues to load in the list/search views. */
+  viewsRecentLimit: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -212,6 +220,31 @@ export interface IssueMetadata {
   archived: boolean;
 }
 
+// ---------------------------------------------------------------------------
+// Issue list / search shapes (V2)
+// ---------------------------------------------------------------------------
+
+/** A lightweight issue summary used by tree views and the search quick-pick. */
+export interface IssueListItem {
+  /** Normalized identifier, e.g. "ENG-123". */
+  id: string;
+  title: string;
+  /** Workflow state name. */
+  state: string;
+  /** Workflow state hex color, for the tree icon/dot. */
+  stateColor?: string;
+  stateType?: string;
+  /** Assignee display name, if any. */
+  assignee?: string;
+  /** Canonical Linear URL. */
+  url: string;
+  /** ISO-8601 last-updated timestamp, for sorting "recent". */
+  updatedAt?: string;
+}
+
+/** Which working set a list query targets. */
+export type IssueListScope = "mine" | "recent";
+
 /**
  * Optional Linear API client. ALL methods degrade gracefully and NEVER throw:
  * when auth/API is unavailable, `fetchIssue` resolves to `null` so callers fall
@@ -226,4 +259,8 @@ export interface LinearClient {
   hasAuth(): boolean;
   /** Re-read auth state (e.g. after sign-in/out or a key change). */
   refreshAuth(): Promise<void>;
+  /** Fetch a working set of issues for the signed-in viewer. Empty array on any failure. */
+  listIssues(scope: IssueListScope, limit: number): Promise<IssueListItem[]>;
+  /** Search issues by free text (Linear `searchIssues`). Empty array on any failure. */
+  searchIssues(query: string, limit: number): Promise<IssueListItem[]>;
 }
