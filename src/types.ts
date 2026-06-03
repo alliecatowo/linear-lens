@@ -130,6 +130,8 @@ export interface LinearLensConfig {
   enableViews: boolean;
   /** `linearLens.views.recent.limit` — how many issues to load in the list/search views. */
   viewsRecentLimit: number;
+  /** `linearLens.gutter.enable` — show a state-colored circle in the gutter beside each ref. */
+  enableGutter: boolean;
 }
 
 // ---------------------------------------------------------------------------

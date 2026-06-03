@@ -28,6 +28,9 @@ const REFRESH_DEBOUNCE_MS = 200;
 /** Command id used by the empty/disabled message node CTA. */
 const COMMAND_CONFIGURE_WORKSPACE = "linearLens.configureWorkspace";
 
+/** URI schemes considered "real" text editors (file + untitled). */
+const SUPPORTED_SCHEMES = new Set(["file", "untitled"]);
+
 /**
  * Optional sync cache-peek surface on the client. `peekIssue` returns a
  * cached {@link IssueMetadata}-like value synchronously when present, or
@@ -53,6 +56,17 @@ export class FileIssuesProvider implements vscode.TreeDataProvider<LinearTreeNod
   private readonly client: LinearClient;
   private debounceTimer: ReturnType<typeof setTimeout> | undefined;
   private disposed = false;
+  /**
+   * The most recently seen supported text editor (file/untitled). Preserved as a
+   * fallback when `vscode.window.activeTextEditor` becomes `undefined` because a
+   * non-text view (webview panel, Output, etc.) takes focus — so the file tree
+   * does not blank out while browsing a ticket detail panel.
+   *
+   * Reset to `undefined` only when the provider is disposed. Starts as `undefined`
+   * ("never seen a supported editor") so the empty placeholder is correct on cold
+   * start before any editor is opened.
+   */
+  private lastSupportedEditor: vscode.TextEditor | undefined;
 
   /**
    * @param getCfg Accessor for the current, validated extension configuration.
@@ -61,6 +75,12 @@ export class FileIssuesProvider implements vscode.TreeDataProvider<LinearTreeNod
   constructor(getCfg: () => LinearLensConfig, client: LinearClient) {
     this.getCfg = getCfg;
     this.client = client;
+    // Seed the fallback with whichever editor is active when we are constructed so
+    // the very first `getChildren` call already has something to render.
+    const current = vscode.window.activeTextEditor;
+    if (current && SUPPORTED_SCHEMES.has(current.document.uri.scheme)) {
+      this.lastSupportedEditor = current;
+    }
   }
 
   /** {@inheritDoc vscode.TreeDataProvider.getTreeItem} */
@@ -84,7 +104,17 @@ export class FileIssuesProvider implements vscode.TreeDataProvider<LinearTreeNod
         return [message("Linear views are disabled (linearLens.views.enable).")];
       }
 
-      const editor = vscode.window.activeTextEditor;
+      // Prefer the active editor; fall back to the last known supported editor so
+      // the tree does not blank when a webview panel or Output channel takes focus.
+      // Show the empty placeholder only when we have genuinely never seen a
+      // supported editor (cold start or all editors closed).
+      const active = vscode.window.activeTextEditor;
+      if (active && SUPPORTED_SCHEMES.has(active.document.uri.scheme)) {
+        this.lastSupportedEditor = active;
+      }
+      const editor = active && SUPPORTED_SCHEMES.has(active.document.uri.scheme)
+        ? active
+        : this.lastSupportedEditor;
       if (!editor) {
         return [message("Open a file to see its Linear references.")];
       }
@@ -145,6 +175,7 @@ export class FileIssuesProvider implements vscode.TreeDataProvider<LinearTreeNod
   /** Dispose the change emitter and cancel any pending debounce. */
   public dispose(): void {
     this.disposed = true;
+    this.lastSupportedEditor = undefined;
     if (this.debounceTimer) {
       clearTimeout(this.debounceTimer);
       this.debounceTimer = undefined;

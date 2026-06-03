@@ -9,15 +9,13 @@ import {
 } from "../types";
 import { issueUrl } from "../config";
 import { scanText } from "../parser";
+import { stateEmoji, stateLabel } from "../format/state";
 
 /** Pixel size of inline avatar images in the people row. */
 const AVATAR_PX = 18;
 
 /** Maximum number of avatars shown inline before collapsing into a "+N" suffix. */
 const MAX_AVATARS = 6;
-
-/** Diameter, in pixels, of the rendered status / label color dots. */
-const DOT_PX = 10;
 
 /**
  * Command ids the hover links to via `command:` URIs. These may be registered in
@@ -177,11 +175,12 @@ export class IssueHoverProvider implements vscode.HoverProvider {
     }
     md.appendMarkdown("\n\n");
 
-    // 2. Status row: colored dot state, then priority, then project.
+    // 2. Status row: emoji state glyph (renders in hovers where data: SVGs do
+    //    not), then priority, then project.
     const statusParts: string[] = [];
-    if (meta.state) {
-      const dot = colorDotImage(meta.stateColor, DOT_PX);
-      statusParts.push(`${dot}**${escapeMd(meta.state)}**`);
+    const label = stateLabel(meta);
+    if (label) {
+      statusParts.push(`${stateEmoji(meta.stateType)} **${escapeMd(label)}**`);
     }
     if (meta.priority) {
       statusParts.push(escapeMd(meta.priority));
@@ -198,7 +197,7 @@ export class IssueHoverProvider implements vscode.HoverProvider {
       this.appendPeopleRow(md, meta);
     }
 
-    // 4. Labels row: each as a colored dot name chip.
+    // 4. Labels row: each as a bullet glyph + name chip.
     if (cfg.hoverShowLabels && meta.labels.length > 0) {
       const chips = meta.labels.map((label) => labelChip(label)).join("  ");
       md.appendMarkdown(chips + "\n\n");
@@ -310,67 +309,18 @@ function isHttpUrl(value: string | undefined): value is string {
  */
 function avatarImage(person: Person, px: number): string {
   const alt = escapeMd(personName(person));
-  // avatarUrl is validated by the caller via isHttpUrl.
-  return `![${alt}](${person.avatarUrl}|width=${px} height=${px})`;
+  // avatarUrl is validated by the caller via isHttpUrl. VS Code's MarkdownString
+  // image-size syntax requires a COMMA between dimensions, not a space.
+  return `![${alt}](${person.avatarUrl}|width=${px},height=${px})`;
 }
 
 /**
- * Render a label as a colored dot followed by its name. Markdown lacks true
- * background chips, so a small color swatch plus the name reads cleanly.
+ * Render a label as a plain bullet glyph followed by its name. Hover
+ * `MarkdownString`s cannot render `data:` SVG color swatches, so the dot uses a
+ * reliable unicode bullet rather than a tinted image.
  */
 function labelChip(label: IssueLabel): string {
-  const dot = colorDotImage(label.color, DOT_PX);
-  return `${dot}${escapeMd(label.name)}`;
-}
-
-/**
- * Build an inline colored-dot markdown image from a hex color, sized `px`.
- * Renders as a `data:` SVG so it is always reliable in trusted hover markdown
- * (no remote load). Returns an empty string when the color is unparseable.
- */
-function colorDotImage(color: string | undefined, px: number): string {
-  const uri = colorDotDataUri(color, px);
-  if (!uri) {
-    return "";
-  }
-  return `![●](${uri}|width=${px} height=${px}) `;
-}
-
-/**
- * Build a `data:image/svg+xml;base64,...` URI for a filled circle of the given
- * hex color, sized `px`. Returns an empty string when the color is invalid.
- */
-function colorDotDataUri(color: string | undefined, px: number): string {
-  const hex = normalizeHex(color);
-  if (!hex) {
-    return "";
-  }
-  const r = px / 2;
-  const svg =
-    `<svg xmlns="http://www.w3.org/2000/svg" width="${px}" height="${px}" ` +
-    `viewBox="0 0 ${px} ${px}"><circle cx="${r}" cy="${r}" r="${r}" ` +
-    `fill="${hex}"/></svg>`;
-  const base64 = Buffer.from(svg, "utf8").toString("base64");
-  return `data:image/svg+xml;base64,${base64}`;
-}
-
-/**
- * Normalize a hex color to `#rrggbb` (lowercase), expanding `#rgb` shorthand.
- * Returns `undefined` when the value is missing or not a valid hex color.
- */
-function normalizeHex(color: string | undefined): string | undefined {
-  if (typeof color !== "string") {
-    return undefined;
-  }
-  const value = color.trim().replace(/^#/, "").toLowerCase();
-  if (/^[0-9a-f]{6}$/.test(value)) {
-    return `#${value}`;
-  }
-  if (/^[0-9a-f]{3}$/.test(value)) {
-    const [a, b, c] = value;
-    return `#${a}${a}${b}${b}${c}${c}`;
-  }
-  return undefined;
+  return `• ${escapeMd(label.name)}`;
 }
 
 /**

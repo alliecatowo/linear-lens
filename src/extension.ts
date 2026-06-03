@@ -19,6 +19,8 @@ import { DiagnosticsManager } from "./diagnostics";
 import { BranchStatusBar } from "./branch";
 import { IssueDecorator } from "./decorations";
 import { InlineStatusDecorator } from "./decorations/inlineStatus";
+import { GutterDecorator } from "./decorations/gutter";
+import { LinearCommentController } from "./comments/commentController";
 import { registerCommands } from "./commands";
 import { registerBranchActions, createAgentBridge } from "./branchActions";
 import { FileIssuesProvider } from "./views/fileIssuesProvider";
@@ -94,6 +96,7 @@ export function activate(context: vscode.ExtensionContext): void {
   // Refresh after the FIRST auth read so context keys / views reflect real state.
   void client.refreshAuth().then(() => {
     setAuthedContext();
+    fileIssues.refresh();
     myIssues.refresh();
     recentIssues.refresh();
   });
@@ -104,12 +107,20 @@ export function activate(context: vscode.ExtensionContext): void {
   // Live, auth-gated inline status indicator (dot/pill) after each reference.
   const inline = new InlineStatusDecorator(getCfg, client);
 
+  // Live, auth-gated gutter status circle beside each line containing a reference.
+  const gutter = new GutterDecorator(getCfg, client);
+
+  // Live, auth-gated read-only Linear comment threads inline beside each reference.
+  const comments = new LinearCommentController(getCfg, client);
+
   // Refresh every editor-side surface after an auth / cache / config change. The
   // tree views are refreshed separately (auth/config/editor handlers) so this
   // stays cheap on hot paths like document edits.
   const refreshUi = (): void => {
     decorator.applyToVisible();
     inline.applyToVisible();
+    gutter.applyToVisible();
+    comments.refreshActive();
   };
 
   // Links + hovers.
@@ -130,6 +141,8 @@ export function activate(context: vscode.ExtensionContext): void {
   diagnostics.refreshAll(vscode.workspace.textDocuments);
   decorator.applyToVisible();
   inline.applyToVisible();
+  gutter.applyToVisible();
+  comments.refreshActive();
 
   // Register the Activity Bar tree views. Providers are ALWAYS registered (content
   // is gated by `views.enable`, not registration) so toggling the setting needs no
@@ -150,6 +163,8 @@ export function activate(context: vscode.ExtensionContext): void {
     { dispose: () => diagnostics.dispose() },
     { dispose: () => decorator.dispose() },
     { dispose: () => inline.dispose() },
+    { dispose: () => gutter.dispose() },
+    { dispose: () => comments.dispose() },
     vscode.workspace.onDidOpenTextDocument((doc) => {
       diagnostics.refresh(doc);
       refreshUi();
@@ -159,6 +174,8 @@ export function activate(context: vscode.ExtensionContext): void {
       if (vscode.window.activeTextEditor?.document === e.document) {
         decorator.apply(vscode.window.activeTextEditor);
         inline.apply(vscode.window.activeTextEditor);
+        gutter.apply(vscode.window.activeTextEditor);
+        comments.refresh(vscode.window.activeTextEditor);
         fileIssues.refresh();
       }
     }),
@@ -166,6 +183,8 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.window.onDidChangeActiveTextEditor((editor) => {
       decorator.apply(editor);
       inline.apply(editor);
+      gutter.apply(editor);
+      comments.refresh(editor);
       // The file view follows the active editor; refresh its refs + context keys.
       fileIssues.refresh();
       updateSelectionContext();
@@ -173,6 +192,8 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.window.onDidChangeVisibleTextEditors(() => {
       decorator.applyToVisible();
       inline.applyToVisible();
+      gutter.applyToVisible();
+      comments.refreshActive();
     }),
   );
 
@@ -278,6 +299,28 @@ export function activate(context: vscode.ExtensionContext): void {
     }),
   );
 
+  // `linearLens.inlineComments.toggle`: flip the inline-comments setting. The
+  // configuration-change handler re-applies the comment threads, so the toggle
+  // takes effect immediately without a window reload. Never throws.
+  context.subscriptions.push(
+    vscode.commands.registerCommand("linearLens.inlineComments.toggle", async () => {
+      try {
+        const configuration = vscode.workspace.getConfiguration(CONFIG_SECTION);
+        const current = configuration.get<boolean>("inlineComments.enable", true);
+        await configuration.update(
+          "inlineComments.enable",
+          !current,
+          vscode.ConfigurationTarget.Global,
+        );
+        void vscode.window.showInformationMessage(
+          `Linear Lens: inline comments ${!current ? "enabled" : "disabled"}.`,
+        );
+      } catch {
+        // Settings update can fail (e.g. read-only profile); never throw.
+      }
+    }),
+  );
+
   // Commands (search / navigation / view / auth / branch).
   registerCommands(context, {
     getCfg,
@@ -298,6 +341,8 @@ export function activate(context: vscode.ExtensionContext): void {
           setAuthedContext();
           refreshUi();
           inline.refresh();
+          gutter.refresh();
+          comments.refreshActive();
           refreshViews();
           refreshDetail();
         });
@@ -317,6 +362,8 @@ export function activate(context: vscode.ExtensionContext): void {
       branch.refresh();
       decorator.applyToVisible();
       inline.refresh();
+      gutter.refresh();
+      comments.refreshActive();
       refreshViews();
       refreshDetail();
     }),

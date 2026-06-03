@@ -156,6 +156,7 @@ export function getConfig(): LinearLensConfig {
     inlineStatusStyle: normalizeInlineStyle(cfg.get("inlineStatus.style")),
     enableViews: toBooleanOr(cfg.get("views.enable"), true),
     viewsRecentLimit: normalizeListLimit(cfg.get("views.recent.limit")),
+    enableGutter: toBooleanOr(cfg.get("gutter.enable"), true),
   };
 }
 

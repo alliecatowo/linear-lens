@@ -133,6 +133,11 @@
         "title": "Open Issue Detail",
         "category": "Linear Lens",
         "icon": "$(preview)"
+      },
+      {
+        "command": "linearLens.inlineComments.toggle",
+        "title": "Toggle Inline Comments",
+        "category": "Linear Lens"
       }
     ],
     "viewsContainers": {
@@ -411,6 +416,16 @@
           ],
           "default": "dot",
           "description": "Inline status style: a colored dot or a labeled state pill."
+        },
+        "linearLens.gutter.enable": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show a colored Linear workflow-state circle in the editor gutter beside each line containing an issue reference. Requires sign-in / a personal API key."
+        },
+        "linearLens.inlineComments.enable": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show read-only Linear comment threads inline beside each issue reference, using the native Comments panel. Requires sign-in / a personal API key."
         },
         "linearLens.views.enable": {
           "type": "boolean",

@@ -1,12 +1,13 @@
 /**
  * Linear Lens — inline status decorator.
  *
- * Renders a small colored status indicator (a dot or a labeled "pill") immediately
- * after each recognized Linear issue reference, reflecting the issue's live
- * workflow-state color (`state.color`). It is a separate decorator from
- * {@link IssueDecorator} (the dotted-underline highlight): this one is live,
- * auth-gated, cache-backed, and debounced so it never blocks typing and never
- * spams the API.
+ * Renders a small status indicator immediately after each recognized Linear
+ * issue reference, reflecting the issue's live workflow state: an emoji state
+ * circle (the "dot" style, from {@link stateEmoji}) or a labeled, tinted "pill"
+ * (the issue's state name on a colored background). It is a separate decorator
+ * from {@link IssueDecorator} (the dotted-underline highlight): this one is
+ * live, auth-gated, cache-backed, and debounced so it never blocks typing and
+ * never spams the API.
  *
  * Design (spec V1.1 §9):
  *  - VS Code requires a distinct {@link vscode.TextEditorDecorationType} per
@@ -15,10 +16,13 @@
  *    disposed/rebuilt on {@link InlineStatusDecorator.refresh} and
  *    {@link InlineStatusDecorator.dispose}.
  *  - For each visible editor we `scanText` the document, then resolve each ref's
- *    color via the client's synchronous cache peek (`peekIssue`). On a miss we
- *    queue the id for a bounded, visible-ranges-first background fetch (≤4 in
- *    flight); when those resolve we debounce a cheap re-apply of the visible
- *    editors.
+ *    metadata via the client's synchronous cache peek (`peekIssue`). A "miss"
+ *    means no cached metadata at all; when metadata IS present but its live
+ *    `state.color` is absent/invalid we still render, tinting with the shared
+ *    per-state-type fallback color ({@link stateColor}). On a true miss we queue
+ *    the id for a bounded, visible-ranges-first background fetch (≤4 in flight);
+ *    when those resolve we debounce a cheap re-apply of the visible editors so
+ *    the freshly-cached state is painted.
  *  - Decorations are grouped by type so each type gets exactly one
  *    `setDecorations` call. Types that had ranges in a previous pass but none in
  *    the current one are cleared to avoid ghost dots.
@@ -30,15 +34,13 @@
 
 import * as vscode from "vscode";
 import { scanText } from "../parser";
+import { stateColor, stateEmoji, stateLabel } from "../format/state";
 import type {
   IssueId,
   IssueMetadata,
   LinearClient,
   LinearLensConfig,
 } from "../types";
-
-/** Glyph used for the "dot" style indicator. */
-const DOT_GLYPH = "●"; // ●
 
 /** Left margin applied so the indicator does not touch the id text. */
 const INDICATOR_MARGIN = "0 0 0 0.25em";
@@ -202,9 +204,12 @@ export class InlineStatusDecorator {
 
       for (const ref of refs) {
         const meta = peek(this._client, ref.issue);
-        const hex = normalizeHex(meta?.stateColor);
 
-        if (!meta || !hex) {
+        // A true cache miss (no metadata at all) is the ONLY reason to skip and
+        // queue a background fetch. When metadata IS cached but the live
+        // `state.color` is missing/invalid, we still render using the shared
+        // state-type fallback color, so a known state always shows an indicator.
+        if (!meta) {
           const existing = missing.get(ref.issue.normalized);
           const visible = this._isRangeVisible(target, ref.start, ref.end);
           if (existing) {
@@ -215,12 +220,20 @@ export class InlineStatusDecorator {
           continue;
         }
 
+        // Prefer Linear's live state color; fall back to the shared per-type
+        // color so the indicator is always tinted sensibly.
+        const hex = normalizeHex(meta.stateColor) ?? stateColor(meta.stateType);
+
         // The indicator is attached AFTER the id, so anchor the range at the
         // id's end position with a zero-width range.
         const end = target.document.positionAt(ref.end);
         const range = new vscode.Range(end, end);
 
-        const text = style === "pill" ? this._pillText(meta) : DOT_GLYPH;
+        // Dot style: a theme-independent emoji circle (renders reliably as
+        // `after.contentText`). Pill style: the human state label on a tinted
+        // background.
+        const text =
+          style === "pill" ? this._pillText(meta) : stateEmoji(meta.stateType);
         const typeKey = this._typeKey(style, hex, text);
         const bucket = rangesByType.get(typeKey);
         if (bucket) {
@@ -309,11 +322,13 @@ export class InlineStatusDecorator {
     return `${style}:${hex}:${text}`;
   }
 
-  /** The pill label for an issue: its state name (or a short fallback). */
+  /** The pill label for an issue: its live state name, else a type-derived label. */
   private _pillText(meta: IssueMetadata): string {
-    const name = meta.state.trim();
+    // `stateLabel` prefers the live state NAME and falls back to a human label
+    // derived from the state type, so the chip is never empty for a known state.
+    const label = stateLabel(meta) || "?";
     // Surround with thin spaces so the colored background reads as a chip.
-    return ` ${name || "?"} `;
+    return ` ${label} `;
   }
 
   /**
@@ -357,12 +372,14 @@ export class InlineStatusDecorator {
         },
       });
     }
-    // Dot style: a single glyph tinted with the state color.
+    // Dot style: an emoji state circle. Emoji carry their own color, so we do
+    // NOT set `after.color` here (it has no effect on emoji and would only
+    // matter for a monochrome glyph). The `hex` remains part of the type key so
+    // the indicator re-renders if the resolved state color changes.
     return vscode.window.createTextEditorDecorationType({
       rangeBehavior: vscode.DecorationRangeBehavior.ClosedClosed,
       after: {
         contentText: text,
-        color: hex,
         margin: INDICATOR_MARGIN,
       },
     });
@@ -464,9 +481,13 @@ export class InlineStatusDecorator {
         .then((meta) => {
           this._inFlight.delete(id.normalized);
           this._activeFetches -= 1;
-          // Only schedule a re-render when something resolvable came back, to
-          // avoid churn on negative lookups.
-          if (meta && normalizeHex(meta.stateColor)) {
+          // Schedule a re-render whenever metadata resolved. The next `apply`
+          // pass reads it synchronously via `peekIssue` (the fetch populated the
+          // shared cache) and renders an indicator — even when the issue has no
+          // live `state.color`, since we fall back to the shared per-type color.
+          // A `null` result (negative lookup / unavailable) schedules nothing,
+          // avoiding churn.
+          if (meta) {
             this._scheduleRefresh();
           }
           this._pumpFetches();

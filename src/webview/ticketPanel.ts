@@ -34,10 +34,24 @@
 import { randomBytes } from "node:crypto";
 import * as vscode from "vscode";
 import { IssueMetadata } from "../types";
+import { renderMarkdown } from "../format/markdown";
 
 // ---------------------------------------------------------------------------
 // Message protocol (host <-> webview)
 // ---------------------------------------------------------------------------
+
+/**
+ * Pre-rendered, sanitized HTML for the markdown bodies of one issue. Produced on
+ * the HOST side by the pure {@link renderMarkdown} (escape-first, allowlist tags,
+ * `http(s)`-only links as `data-href`), so the webview can assign it directly to
+ * `innerHTML` without shipping a markdown renderer or relaxing the nonce CSP.
+ */
+export interface RenderedMarkdown {
+  /** Sanitized HTML for {@link IssueMetadata.description} (`""` when empty). */
+  readonly description: string;
+  /** Sanitized HTML per comment, index-aligned with {@link IssueMetadata.comments}. */
+  readonly comments: readonly string[];
+}
 
 /**
  * Messages sent FROM the extension host TO the webview.
@@ -47,7 +61,13 @@ import { IssueMetadata } from "../types";
  */
 export type HostToWebviewMessage =
   /** Render (or re-render) a single issue. */
-  | { readonly type: "openIssue"; readonly issue: IssueMetadata; readonly canCheckout: boolean }
+  | {
+      readonly type: "openIssue";
+      readonly issue: IssueMetadata;
+      readonly canCheckout: boolean;
+      /** Host-rendered, sanitized HTML for the description + comment bodies. */
+      readonly rendered: RenderedMarkdown;
+    }
   /** Show a calm skeleton/spinner while the host re-fetches. */
   | { readonly type: "loading"; readonly id: string }
   /** Show an actionable error/empty state with a retry affordance. */
@@ -176,7 +196,7 @@ export class TicketPanel {
       this.currentIssue = issue;
       panel.title = issue.id ? `Linear · ${issue.id}` : "Linear Issue";
       const canCheckout = options.canCheckout ?? Boolean(issue.branchName);
-      void this.post({ type: "openIssue", issue, canCheckout });
+      void this.post({ type: "openIssue", issue, canCheckout, rendered: renderIssueMarkdown(issue) });
     } catch {
       // Never let a render fault bubble into the host.
     }
@@ -304,6 +324,7 @@ export class TicketPanel {
               type: "openIssue",
               issue: this.currentIssue,
               canCheckout: Boolean(this.currentIssue.branchName),
+              rendered: renderIssueMarkdown(this.currentIssue),
             });
           }
           return;
@@ -398,6 +419,23 @@ export function openTicketPanel(
   const panel = new TicketPanel(extensionUri, handlers);
   panel.render(issue);
   return panel;
+}
+
+/**
+ * Render an issue's markdown bodies (description + every comment) to sanitized
+ * HTML on the HOST side via the pure {@link renderMarkdown}. Doing this here —
+ * rather than in the webview — keeps a single, unit-tested markdown
+ * implementation and lets the webview stay free of a markdown renderer while its
+ * nonce CSP forbids inline/eval'd code.
+ *
+ * @param issue - The issue whose description/comment bodies to render.
+ * @returns Sanitized HTML for the description and each comment (index-aligned).
+ */
+function renderIssueMarkdown(issue: IssueMetadata): RenderedMarkdown {
+  return {
+    description: renderMarkdown(issue.description),
+    comments: (issue.comments ?? []).map((c) => renderMarkdown(c?.body)),
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -686,8 +724,10 @@ hr.divider { border: none; border-top: 1px solid var(--vscode-panel-border); mar
 /**
  * The inline webview script. Acquires the VS Code API, signals `ready`, and
  * renders inbound payloads. All issue-derived text is inserted via
- * `textContent`; the only HTML is produced by a tiny escape-then-format
- * markdown renderer with a strict tag allowlist and `http(s)`-only links.
+ * `textContent`; the only HTML inserted via `innerHTML` is the description /
+ * comment markdown, which the HOST has already rendered to sanitized HTML with
+ * the pure {@link renderMarkdown} (escape-first, strict tag allowlist,
+ * `http(s)`-only links emitted as `data-href` and routed through `postMessage`).
  * Colors are validated against `^#[0-9a-fA-F]{6}$` and applied with
  * `style.setProperty`.
  */
@@ -783,110 +823,17 @@ const PANEL_SCRIPT = `
     try { return new Date(t).toLocaleDateString(); } catch (e) { return ""; }
   }
 
-  /* ------- Tiny markdown renderer (escape THEN format, allowlist tags) ----- */
-  function escapeHtml(s) {
-    return String(s)
-      .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
-      .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
-  }
-
-  /* Inline formatting on already-escaped text. */
-  function inlineMd(escaped) {
-    let s = escaped;
-    s = s.replace(/\`([^\`]+)\`/g, "<code>$1</code>");
-    s = s.replace(/\\*\\*([^*]+)\\*\\*/g, "<strong>$1</strong>");
-    s = s.replace(/(^|[^*])\\*([^*]+)\\*/g, "$1<em>$2</em>");
-    s = s.replace(/_([^_]+)_/g, "<em>$1</em>");
-    /* Links: only http(s); routed via openExternal (no navigation). */
-    s = s.replace(/\\[([^\\]]+)\\]\\(([^)\\s]+)\\)/g, function (_m, label, href) {
-      /* href is from already HTML-escaped text; ":" and "/" are untouched by escapeHtml. */
-      if (!/^https?:\\/\\//i.test(href)) return label;
-      const safeHref = href.replace(/"/g, "&quot;");
-      return '<a class="link" data-href="' + safeHref + '">' + label + "</a>";
-    });
-    return s;
-  }
-
-  /* Block-level renderer producing a sanitized DocumentFragment. */
-  function renderMarkdown(md) {
-    const frag = document.createDocumentFragment();
-    const lines = String(md || "").replace(/\\r\\n/g, "\\n").split("\\n");
-    let i = 0;
-    while (i < lines.length) {
-      let line = lines[i];
-
-      if (/^\\s*$/.test(line)) { i++; continue; }
-
-      /* Fenced code block */
-      if (/^\\s*\`\`\`/.test(line)) {
-        const buf = [];
-        i++;
-        while (i < lines.length && !/^\\s*\`\`\`/.test(lines[i])) { buf.push(lines[i]); i++; }
-        i++;
-        const pre = el("pre");
-        pre.appendChild(el("code", { text: buf.join("\\n") }));
-        frag.appendChild(pre);
-        continue;
-      }
-
-      /* Heading */
-      const h = /^(#{1,3})\\s+(.*)$/.exec(line);
-      if (h) {
-        const tag = "h" + h[1].length;
-        const node = el(tag);
-        node.innerHTML = inlineMd(escapeHtml(h[2]));
-        frag.appendChild(node);
-        i++;
-        continue;
-      }
-
-      /* Blockquote */
-      if (/^\\s*>\\s?/.test(line)) {
-        const buf = [];
-        while (i < lines.length && /^\\s*>\\s?/.test(lines[i])) {
-          buf.push(lines[i].replace(/^\\s*>\\s?/, ""));
-          i++;
-        }
-        const bq = el("blockquote");
-        bq.innerHTML = inlineMd(escapeHtml(buf.join(" ")));
-        frag.appendChild(bq);
-        continue;
-      }
-
-      /* Lists */
-      if (/^\\s*[-*+]\\s+/.test(line) || /^\\s*\\d+\\.\\s+/.test(line)) {
-        const ordered = /^\\s*\\d+\\.\\s+/.test(line);
-        const list = el(ordered ? "ol" : "ul");
-        while (i < lines.length && (/^\\s*[-*+]\\s+/.test(lines[i]) || /^\\s*\\d+\\.\\s+/.test(lines[i]))) {
-          const item = lines[i].replace(/^\\s*(?:[-*+]|\\d+\\.)\\s+/, "");
-          const li = el("li");
-          li.innerHTML = inlineMd(escapeHtml(item));
-          list.appendChild(li);
-          i++;
-        }
-        frag.appendChild(list);
-        continue;
-      }
-
-      /* Paragraph (gather consecutive non-blank, non-special lines) */
-      const buf = [];
-      while (
-        i < lines.length &&
-        !/^\\s*$/.test(lines[i]) &&
-        !/^\\s*\`\`\`/.test(lines[i]) &&
-        !/^(#{1,3})\\s+/.test(lines[i]) &&
-        !/^\\s*>\\s?/.test(lines[i]) &&
-        !/^\\s*[-*+]\\s+/.test(lines[i]) &&
-        !/^\\s*\\d+\\.\\s+/.test(lines[i])
-      ) {
-        buf.push(lines[i]);
-        i++;
-      }
-      const p = el("p");
-      p.innerHTML = inlineMd(escapeHtml(buf.join("\\n"))).replace(/\\n/g, "<br>");
-      frag.appendChild(p);
-    }
-    return frag;
+  /* ------- Markdown bodies ------------------------------------------------- */
+  /*
+   * Markdown is rendered to sanitized HTML on the HOST (src/format/markdown.ts):
+   * escape-first, allowlist tags, http(s)-only links emitted as
+   * <a class="link" data-href="…"> (no live href). The host's output is trusted
+   * sanitized HTML, so the webview assigns it directly to innerHTML. Clicks on
+   * the produced links are routed to the host by the data-href delegation below.
+   */
+  function setHtml(node, html) {
+    node.innerHTML = typeof html === "string" ? html : "";
+    return node;
   }
 
   /* Delegate clicks on markdown/attachment links to the host. */
@@ -958,12 +905,13 @@ const PANEL_SCRIPT = `
     return head;
   }
 
-  function descriptionSection(issue) {
+  function descriptionSection(rendered) {
     const sec = el("section", { class: "section" });
     sec.appendChild(el("h2", { text: "Description" }));
     const body = el("div", { class: "body" });
-    if (issue.description && issue.description.trim()) {
-      body.appendChild(renderMarkdown(issue.description));
+    const html = rendered && rendered.description;
+    if (html && html.trim()) {
+      setHtml(body, html);
     } else {
       body.appendChild(el("p", { class: "muted", text: "No description." }));
     }
@@ -991,15 +939,16 @@ const PANEL_SCRIPT = `
     return sec;
   }
 
-  function commentsSection(issue) {
+  function commentsSection(issue, rendered) {
     const comments = issue.comments || [];
+    const bodies = (rendered && rendered.comments) || [];
     const sec = el("section", { class: "section" });
     sec.appendChild(el("h2", { text: "Comments (" + comments.length + ")" }));
     if (!comments.length) {
       sec.appendChild(el("p", { class: "muted", text: "No comments yet." }));
       return sec;
     }
-    comments.forEach(function (c) {
+    comments.forEach(function (c, idx) {
       const author = c.author || {};
       const wrap = el("div", { class: "comment" });
       const head = el("div", { class: "comment-head" });
@@ -1008,7 +957,8 @@ const PANEL_SCRIPT = `
       head.appendChild(el("span", { class: "comment-time", text: relativeTime(c.createdAt) }));
       wrap.appendChild(head);
       const body = el("div", { class: "body" });
-      if (c.body && c.body.trim()) body.appendChild(renderMarkdown(c.body));
+      const html = bodies[idx];
+      if (html && html.trim()) setHtml(body, html);
       else body.appendChild(el("p", { class: "muted", text: "(empty comment)" }));
       wrap.appendChild(body);
       sec.appendChild(wrap);
@@ -1074,16 +1024,16 @@ const PANEL_SCRIPT = `
     return sec;
   }
 
-  function renderIssue(issue, canCheckout) {
+  function renderIssue(issue, canCheckout, rendered) {
     clear(root);
     root.appendChild(header(issue, canCheckout));
 
     const layout = el("div", { class: "layout" });
     const main = el("div", { class: "main" });
-    main.appendChild(descriptionSection(issue));
+    main.appendChild(descriptionSection(rendered));
     const att = attachmentsSection(issue);
     if (att) main.appendChild(att);
-    main.appendChild(commentsSection(issue));
+    main.appendChild(commentsSection(issue, rendered));
     layout.appendChild(main);
 
     const side = el("div", { class: "side" });
@@ -1096,7 +1046,7 @@ const PANEL_SCRIPT = `
   window.addEventListener("message", function (event) {
     const msg = event.data;
     if (!msg || typeof msg.type !== "string") return;
-    if (msg.type === "openIssue" && msg.issue) renderIssue(msg.issue, !!msg.canCheckout);
+    if (msg.type === "openIssue" && msg.issue) renderIssue(msg.issue, !!msg.canCheckout, msg.rendered || { description: "", comments: [] });
     else if (msg.type === "loading" || msg.type === "error") renderState(msg);
   });
 
