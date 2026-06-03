@@ -333,6 +333,13 @@ export function createLinearClient(
       }
     },
 
+    peekIssue(id: IssueId): IssueMetadata | null {
+      // Synchronous, network-free read of the shared hover cache. Returns the
+      // cached metadata when present and unexpired, else null — used by the
+      // inline status pill, gutter, and tree to paint without awaiting a fetch.
+      return readCache(id.normalized)?.value ?? null;
+    },
+
     async fetchTicketDetail(id: IssueId): Promise<TicketDetail | null> {
       // Delegates to the heavier detail path, reusing this client's auth/config
       // and a dedicated TTL cache. Never throws (the callee is a hard backstop).

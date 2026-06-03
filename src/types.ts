@@ -322,6 +322,14 @@ export interface LinearClient {
    */
   fetchIssue(id: IssueId): Promise<IssueMetadata | null>;
   /**
+   * Synchronous, network-free peek at the lightweight cache populated by
+   * {@link LinearClient.fetchIssue}. Returns cached {@link IssueMetadata} when
+   * present and unexpired, else `null`. Used by the inline status pill, gutter,
+   * and tree to render immediately without awaiting (a `null` means "not cached
+   * yet" — callers queue a background `fetchIssue` and repaint when it resolves).
+   */
+  peekIssue(id: IssueId): IssueMetadata | null;
+  /**
    * Heavier, on-demand fetch used by the detail webview: returns the full
    * {@link TicketDetail} (the full comment thread plus all labels, attachments,
    * and collaborators, each generously capped) or `null` if unavailable. Cached
