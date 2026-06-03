@@ -144,6 +144,67 @@
         "title": "Copy as Markdown",
         "category": "Linear Lens",
         "icon": "$(markdown)"
+      },
+      {
+        "command": "linearLens.editIssue",
+        "title": "Edit Issue…",
+        "category": "Linear Lens",
+        "icon": "$(edit)"
+      },
+      {
+        "command": "linearLens.setStatus",
+        "title": "Set Status…",
+        "category": "Linear Lens"
+      },
+      {
+        "command": "linearLens.setAssignee",
+        "title": "Set Assignee…",
+        "category": "Linear Lens"
+      },
+      {
+        "command": "linearLens.editLabels",
+        "title": "Edit Labels…",
+        "category": "Linear Lens"
+      },
+      {
+        "command": "linearLens.setTeam",
+        "title": "Move to Team…",
+        "category": "Linear Lens"
+      },
+      {
+        "command": "linearLens.setProject",
+        "title": "Set Project…",
+        "category": "Linear Lens"
+      },
+      {
+        "command": "linearLens.setPriority",
+        "title": "Set Priority…",
+        "category": "Linear Lens"
+      },
+      {
+        "command": "linearLens.setCycle",
+        "title": "Set Cycle…",
+        "category": "Linear Lens"
+      },
+      {
+        "command": "linearLens.editBlockers",
+        "title": "Edit Blockers…",
+        "category": "Linear Lens"
+      },
+      {
+        "command": "linearLens.addBlocker",
+        "title": "Add Blocking Relation…",
+        "category": "Linear Lens"
+      },
+      {
+        "command": "linearLens.addBlockedBy",
+        "title": "Add Blocked-By Relation…",
+        "category": "Linear Lens"
+      },
+      {
+        "command": "linearLens.removeBlocker",
+        "title": "Remove Blocker Relation…",
+        "category": "Linear Lens"
       }
     ],
     "viewsContainers": {
@@ -187,6 +248,54 @@
         },
         {
           "command": "linearLens.openInAgent",
+          "when": "false"
+        },
+        {
+          "command": "linearLens.editIssue",
+          "when": "config.linearLens.edit.enable"
+        },
+        {
+          "command": "linearLens.editBlockers",
+          "when": "config.linearLens.edit.enable"
+        },
+        {
+          "command": "linearLens.setStatus",
+          "when": "false"
+        },
+        {
+          "command": "linearLens.setAssignee",
+          "when": "false"
+        },
+        {
+          "command": "linearLens.editLabels",
+          "when": "false"
+        },
+        {
+          "command": "linearLens.setTeam",
+          "when": "false"
+        },
+        {
+          "command": "linearLens.setProject",
+          "when": "false"
+        },
+        {
+          "command": "linearLens.setPriority",
+          "when": "false"
+        },
+        {
+          "command": "linearLens.setCycle",
+          "when": "false"
+        },
+        {
+          "command": "linearLens.addBlocker",
+          "when": "false"
+        },
+        {
+          "command": "linearLens.addBlockedBy",
+          "when": "false"
+        },
+        {
+          "command": "linearLens.removeBlocker",
           "when": "false"
         }
       ],
@@ -252,6 +361,16 @@
           "command": "linearLens.openInAgent",
           "when": "viewItem == linearIssue",
           "group": "2_git@2"
+        },
+        {
+          "command": "linearLens.editIssue",
+          "when": "viewItem == linearIssue && config.linearLens.edit.enable && linearLens.authed",
+          "group": "3_edit@1"
+        },
+        {
+          "command": "linearLens.editBlockers",
+          "when": "viewItem == linearIssue && config.linearLens.edit.enable && linearLens.authed",
+          "group": "3_edit@2"
         }
       ],
       "editor/context": [
@@ -281,9 +400,19 @@
           "group": "linearLens@5"
         },
         {
+          "command": "linearLens.editIssue",
+          "when": "editorTextFocus && linearLens.refUnderCursor && config.linearLens.edit.enable",
+          "group": "linearLens@6"
+        },
+        {
           "command": "linearLens.copyIssueMarkdown",
           "when": "editorTextFocus && linearLens.refUnderCursor",
           "group": "linearLens@7"
+        },
+        {
+          "command": "linearLens.editBlockers",
+          "when": "editorTextFocus && linearLens.refUnderCursor && config.linearLens.edit.enable",
+          "group": "linearLens@8"
         }
       ]
     },
@@ -326,6 +455,12 @@
         "key": "ctrl+alt+[",
         "mac": "cmd+alt+[",
         "when": "editorTextFocus && linearLens.hasRefs"
+      },
+      {
+        "command": "linearLens.editIssue",
+        "key": "ctrl+alt+e",
+        "mac": "cmd+alt+e",
+        "when": "editorTextFocus && linearLens.refUnderCursor && config.linearLens.edit.enable"
       }
     ],
     "configuration": {
@@ -464,6 +599,11 @@
           "type": "boolean",
           "default": false,
           "description": "Include the comment thread when copying a ticket as Markdown."
+        },
+        "linearLens.edit.enable": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Show the issue-editing actions (Edit Issue, Edit Blockers, and the status/assignee/labels/team/project/priority/cycle sub-flows) in hovers, menus, and the issue detail view. Editing always re-checks for write access (a personal API key, or a write-capable Linear sign-in) and prompts when it is missing. Turn this off to hide all write actions."
         }
       }
     }

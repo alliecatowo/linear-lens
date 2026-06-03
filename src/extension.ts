@@ -23,6 +23,8 @@ import { GutterDecorator } from "./decorations/gutter";
 import { LinearCommentController } from "./comments/commentController";
 import { registerCommands } from "./commands";
 import { registerCopyCommands } from "./copyCommands";
+import { registerEditCommands } from "./edit/editCommands";
+import { registerBlockerCommands } from "./edit/blockers";
 import { registerBranchActions, createAgentBridge } from "./branchActions";
 import { FileIssuesProvider } from "./views/fileIssuesProvider";
 import { IssueListProvider } from "./views/issueListProvider";
@@ -228,6 +230,22 @@ export function activate(context: vscode.ExtensionContext): void {
     recentIssues.refresh();
   };
 
+  // Targeted cache drop after a successful write so the next hover / tree / detail
+  // read reflects the change. Prefers the client's targeted `invalidate(id)` (EDIT
+  // spec §6) when present; never calls `clearCache()` (that storms a refetch). Falls
+  // back to a no-op so stale entries simply age out via the TTL when the targeted
+  // method is unavailable. Never throws.
+  const invalidate = (id: IssueId): void => {
+    try {
+      const targeted = (client as Partial<{ invalidate: (id: IssueId) => void }>).invalidate;
+      if (typeof targeted === "function") {
+        targeted.call(client, id);
+      }
+    } catch {
+      // Cache invalidation must never surface as a failure.
+    }
+  };
+
   // Coding-agent bridge + branch/diff/agent command handlers (local, read-only).
   const agent = createAgentBridge(getCfg);
   registerBranchActions(context, { getCfg, client, agent });
@@ -241,6 +259,14 @@ export function activate(context: vscode.ExtensionContext): void {
       await vscode.commands.executeCommand("linearLens.checkoutBranch", { id, branchName });
     },
     onRefresh: async (id) => fetchTicketMetadata(client, getCfg, id),
+    // Webview detail buttons (E2). The host passes the panel's cached id; the
+    // edit/blocker commands re-check write access (no-op + prompt when missing).
+    onEditIssue: async (id) => {
+      await vscode.commands.executeCommand("linearLens.editIssue", { id });
+    },
+    onEditBlockers: async (id) => {
+      await vscode.commands.executeCommand("linearLens.editBlockers", { id });
+    },
   });
   context.subscriptions.push({ dispose: () => detail.dispose() });
 
@@ -322,6 +348,43 @@ export function activate(context: vscode.ExtensionContext): void {
     }),
   );
 
+  // `linearLens.editBlockers`: a thin chooser that dispatches to the three
+  // granular blocker commands (add-blocks / add-blocked-by / remove). Gives the
+  // hover, tree, webview, and palette a single "Edit Blockers…" entry point while
+  // the underlying mutations (each WRITE-AUTH gated) live in `edit/blockers.ts`.
+  // The chosen sub-command inherits the same `{ id }` / cursor argument resolution
+  // and re-checks write access, so this dispatcher itself needs no gate. Never throws.
+  context.subscriptions.push(
+    vscode.commands.registerCommand("linearLens.editBlockers", async (arg?: unknown) => {
+      interface BlockerAction extends vscode.QuickPickItem {
+        readonly command: string;
+      }
+      const actions: BlockerAction[] = [
+        {
+          label: "$(arrow-left) Add a blocker (this issue is blocked by…)",
+          command: "linearLens.addBlockedBy",
+        },
+        {
+          label: "$(arrow-right) Add a 'blocks' relation (this issue blocks…)",
+          command: "linearLens.addBlocker",
+        },
+        {
+          label: "$(trash) Remove an existing blocker relation…",
+          command: "linearLens.removeBlocker",
+        },
+      ];
+      const choice = await vscode.window.showQuickPick(actions, {
+        title: "Linear Lens: Edit Blockers",
+        placeHolder: "Choose a blocker action",
+        ignoreFocusOut: true,
+      });
+      if (!choice) {
+        return;
+      }
+      await vscode.commands.executeCommand(choice.command, arg);
+    }),
+  );
+
   // Commands (search / navigation / view / auth / branch).
   registerCommands(context, {
     getCfg,
@@ -336,6 +399,32 @@ export function activate(context: vscode.ExtensionContext): void {
 
   // Copy-as-Markdown command (E1): read-only, no write-auth gate.
   registerCopyCommands(context, { getCfg, client });
+
+  // Edit + blocker commands (E2). Every mutating command re-checks write access at
+  // runtime via `ensureWriteAuth` (prompting / no-op when a write credential is
+  // missing) before any write, so they degrade gracefully even when surfaced while
+  // signed out. Menus additionally hide them behind `config.linearLens.edit.enable`
+  // (+ `linearLens.authed`) to keep menus clean. Targeted `invalidate` + the refresh
+  // callbacks repaint every surface after a successful write.
+  const writeAuthDeps = { secrets: context.secrets };
+  registerEditCommands(context, {
+    getCfg,
+    client,
+    writeAuthDeps,
+    refreshUi,
+    refreshViews,
+    refreshDetail,
+    invalidate,
+  });
+  registerBlockerCommands(context, {
+    getCfg,
+    client,
+    writeAuthDeps,
+    refreshUi,
+    refreshViews,
+    refreshDetail,
+    invalidate,
+  });
 
   // Refresh when Linear's authentication sessions change (sign in/out).
   context.subscriptions.push(

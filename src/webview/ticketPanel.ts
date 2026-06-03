@@ -87,7 +87,11 @@ export type WebviewToHostMessage =
   /** Open a URL externally. The host honors only `http(s)` schemes. */
   | { readonly type: "openExternal"; readonly url: string }
   /** Check out the issue's git branch. The host re-derives the branch name. */
-  | { readonly type: "checkoutBranch"; readonly branchName: string };
+  | { readonly type: "checkoutBranch"; readonly branchName: string }
+  /** Edit the current issue's fields. The host re-derives the id from its cache. */
+  | { readonly type: "editIssue" }
+  /** Edit the current issue's blocker relations. The host re-derives the id. */
+  | { readonly type: "editBlockers" };
 
 /**
  * Type guard narrowing an unknown `postMessage` payload to a
@@ -110,6 +114,9 @@ export function isWebviewToHostMessage(value: unknown): value is WebviewToHostMe
       return typeof record.url === "string";
     case "checkoutBranch":
       return typeof record.branchName === "string";
+    case "editIssue":
+    case "editBlockers":
+      return true;
     default:
       return false;
   }
@@ -141,6 +148,17 @@ export interface TicketPanelHandlers {
    * automatically; if omitted, the refresh button is inert.
    */
   readonly onRefresh?: (id: string) => IssueMetadata | null | Promise<IssueMetadata | null>;
+  /**
+   * Edit the current issue's fields (E2). Receives the normalized issue id, which
+   * the host re-derives from its cached metadata (never trusted from the webview).
+   * When omitted, the "Edit" button is inert.
+   */
+  readonly onEditIssue?: (id: string) => void | Promise<void>;
+  /**
+   * Edit the current issue's blocker relations (E2). Receives the normalized issue
+   * id, re-derived host-side. When omitted, the "Blockers" button is inert.
+   */
+  readonly onEditBlockers?: (id: string) => void | Promise<void>;
 }
 
 // ---------------------------------------------------------------------------
@@ -340,10 +358,42 @@ export class TicketPanel {
         case "refresh":
           await this.handleRefresh();
           return;
+
+        case "editIssue":
+          await this.handleEditIssue();
+          return;
+
+        case "editBlockers":
+          await this.handleEditBlockers();
+          return;
       }
     } catch {
       // A misbehaving webview must never crash the host.
     }
+  }
+
+  /**
+   * Edit the current issue's fields. The id is re-derived from the host's cached
+   * metadata, never trusted from the message payload.
+   */
+  private async handleEditIssue(): Promise<void> {
+    const issue = this.currentIssue;
+    if (!issue?.id || !this.handlers.onEditIssue) {
+      return;
+    }
+    await this.handlers.onEditIssue(issue.id);
+  }
+
+  /**
+   * Edit the current issue's blocker relations. The id is re-derived from the
+   * host's cached metadata, never trusted from the message payload.
+   */
+  private async handleEditBlockers(): Promise<void> {
+    const issue = this.currentIssue;
+    if (!issue?.id || !this.handlers.onEditBlockers) {
+      return;
+    }
+    await this.handlers.onEditBlockers(issue.id);
   }
 
   /**
@@ -898,6 +948,12 @@ const PANEL_SCRIPT = `
       });
       actions.appendChild(b);
     }
+    const editBtn = el("button", { text: "Edit" });
+    editBtn.addEventListener("click", function () { post({ type: "editIssue" }); });
+    actions.appendChild(editBtn);
+    const blockersBtn = el("button", { text: "Blockers" });
+    blockersBtn.addEventListener("click", function () { post({ type: "editBlockers" }); });
+    actions.appendChild(blockersBtn);
     const refresh = el("button", { text: "Refresh" });
     refresh.addEventListener("click", function () { post({ type: "refresh" }); });
     actions.appendChild(refresh);

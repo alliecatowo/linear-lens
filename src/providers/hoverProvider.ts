@@ -31,6 +31,12 @@ const COMMAND_OPEN_TICKET = "linearLens.openTicket";
 /** Command copying an issue as Markdown to the clipboard (E1). */
 const COMMAND_COPY_MARKDOWN = "linearLens.copyIssueMarkdown";
 
+/** Command opening the field-edit dispatcher for an issue id (E2). */
+const COMMAND_EDIT_ISSUE = "linearLens.editIssue";
+
+/** Command opening the blocker add/remove chooser for an issue id (E2). */
+const COMMAND_EDIT_BLOCKERS = "linearLens.editBlockers";
+
 /** Command ids the hover is allowed to invoke; narrows the trusted-command surface. */
 const TRUSTED_COMMANDS: readonly string[] = [
   "linearLens.configureWorkspace",
@@ -38,6 +44,8 @@ const TRUSTED_COMMANDS: readonly string[] = [
   COMMAND_VIEW_BRANCH_DIFF,
   COMMAND_OPEN_TICKET,
   COMMAND_COPY_MARKDOWN,
+  COMMAND_EDIT_ISSUE,
+  COMMAND_EDIT_BLOCKERS,
 ];
 
 /**
@@ -217,9 +225,15 @@ export class IssueHoverProvider implements vscode.HoverProvider {
       md.appendMarkdown(`${checkout} · ${diff}\n\n`);
     }
 
-    // 6. Action row: open the in-editor detail webview, copy as Markdown, then
-    //    the canonical issue.
-    const actions: string[] = [openDetailsLink(id), copyMarkdownLink(id)];
+    // 6. Action row: open the in-editor detail webview, copy as Markdown, the
+    //    write actions (Edit / Blockers — each re-checks write-auth at runtime and
+    //    no-ops with a prompt when missing), then the canonical issue.
+    const actions: string[] = [
+      openDetailsLink(id),
+      copyMarkdownLink(id),
+      editIssueLink(id),
+      editBlockersLink(id),
+    ];
     if (url) {
       actions.push(`[Open in Linear](${url})`);
     }
@@ -304,6 +318,28 @@ function openDetailsLink(id: string): string {
 function copyMarkdownLink(id: string): string {
   const args = encodeURIComponent(JSON.stringify({ id }));
   return `[Copy as Markdown](command:${COMMAND_COPY_MARKDOWN}?${args})`;
+}
+
+/**
+ * Build the "Edit" command link that opens the field-edit dispatcher for `id`
+ * (E2). The `{ id }` argument is JSON-stringified then `encodeURIComponent`-
+ * encoded so it round-trips through the `command:` URI. The command re-checks
+ * write access at runtime, prompting (and no-opping) when none is present.
+ */
+function editIssueLink(id: string): string {
+  const args = encodeURIComponent(JSON.stringify({ id }));
+  return `[Edit](command:${COMMAND_EDIT_ISSUE}?${args})`;
+}
+
+/**
+ * Build the "Blockers" command link that opens the blocker add/remove chooser for
+ * `id` (E2). The `{ id }` argument is JSON-stringified then `encodeURIComponent`-
+ * encoded so it round-trips through the `command:` URI. The chosen sub-command
+ * re-checks write access at runtime.
+ */
+function editBlockersLink(id: string): string {
+  const args = encodeURIComponent(JSON.stringify({ id }));
+  return `[Blockers](command:${COMMAND_EDIT_BLOCKERS}?${args})`;
 }
 
 /** The preferred display name for a person, falling back to the internal name. */
