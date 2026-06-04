@@ -725,6 +725,56 @@ export function createLinearClient(
   };
 
   /**
+   * Per-id FALLBACK used when the batch `issues(filter:{or:[…]})` query fails
+   * (non-200 or GraphQL errors): fetch each id with the proven single-issue
+   * {@link ISSUE_QUERY}, which Linear is known to accept. Writes through to the
+   * cache (positive, or a short-TTL negative when the issue is absent) and returns
+   * whatever resolved. This keeps hovers working even if a workspace rejects the
+   * batch shape. Never throws.
+   */
+  const fallbackSingles = async (
+    chunk: IssueId[],
+    auth: AuthHeader,
+  ): Promise<Map<string, IssueMetadata>> => {
+    const out = new Map<string, IssueMetadata>();
+    for (const id of chunk) {
+      try {
+        const response = await withActivity(() =>
+          doFetch(LINEAR_GRAPHQL_ENDPOINT, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: auth.value,
+            },
+            body: JSON.stringify({
+              query: ISSUE_QUERY,
+              variables: { team: id.team, number: id.number },
+            }),
+          }),
+        );
+        if (!response.ok) {
+          continue; // transient — leave uncached for a later retry
+        }
+        const json = (await response.json()) as BatchIssuesResponse;
+        if (json.errors) {
+          logDebug?.("single issue query returned GraphQL errors");
+          continue;
+        }
+        const hit = mapBatchResponse(json).get(id.normalized);
+        if (hit) {
+          writeCache(id.normalized, hit);
+          out.set(id.normalized, hit);
+        } else {
+          writeCache(id.normalized, null, NEGATIVE_TTL_MS);
+        }
+      } catch {
+        // Network/parse error — do not cache; allow a later retry.
+      }
+    }
+    return out;
+  };
+
+  /**
    * POST the BATCH query for a chunk of ids and merge results into the in-memory
    * cache: present nodes become positive entries; requested ids absent from the
    * response become negative lookups (short TTL). Returns the per-chunk results
@@ -748,7 +798,7 @@ export function createLinearClient(
         }),
       );
       if (!response.ok) {
-        return new Map();
+        return fallbackSingles(chunk, auth);
       }
       json = (await response.json()) as BatchIssuesResponse;
     } catch {
@@ -756,8 +806,10 @@ export function createLinearClient(
       return new Map();
     }
     if (json.errors) {
-      logDebug?.("batch issues query returned GraphQL errors");
-      return new Map();
+      logDebug?.(
+        "batch issues query returned GraphQL errors; falling back to single-issue queries",
+      );
+      return fallbackSingles(chunk, auth);
     }
     const mapped = mapBatchResponse(json);
     for (const id of chunk) {

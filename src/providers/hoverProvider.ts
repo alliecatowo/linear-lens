@@ -129,16 +129,18 @@ export class IssueHoverProvider implements vscode.HoverProvider {
 
     const slug = this.getSlug();
 
+    // Always attempt the fetch. The client is the source of truth for auth and
+    // returns null instantly (no network) when the API is disabled or no
+    // credential is present — so we never gate the rich hover on a possibly-stale
+    // hasAuth() snapshot (which could wrongly drop it right after startup/sign-in).
     let markdown: vscode.MarkdownString | undefined;
-    if (this.client.hasAuth()) {
-      const metadata = await this.client.fetchIssue(ref.issue);
-      // Hovers fire on mouse-move: bail if the user has moved on.
-      if (token.isCancellationRequested) {
-        return undefined;
-      }
-      if (metadata) {
-        markdown = this.buildRichHover(ref, metadata, cfg, slug);
-      }
+    const metadata = await this.client.fetchIssue(ref.issue);
+    // Hovers fire on mouse-move: bail if the user has moved on.
+    if (token.isCancellationRequested) {
+      return undefined;
+    }
+    if (metadata) {
+      markdown = this.buildRichHover(ref, metadata, cfg, slug);
     }
 
     if (!markdown) {
