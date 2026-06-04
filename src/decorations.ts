@@ -54,8 +54,8 @@ export class IssueDecorator {
 
     // One decoration type for the extension's lifetime.  Dotted underline in
     // the editor's link colour keeps the visual weight low while still making
-    // every ref discoverable.  The overview ruler gutter entry lets users
-    // quickly locate refs in long files without scrolling.
+    // every ref discoverable.  The overview-ruler tick (scrollbar, Right lane)
+    // lets users quickly locate refs in long files without scrolling.
     this._type = vscode.window.createTextEditorDecorationType({
       textDecoration: "underline dotted",
       color: new vscode.ThemeColor("textLink.foreground"),

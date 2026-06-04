@@ -55,6 +55,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `linearLens.hover.showBranchActions`** settings (all default `true`) are now contributed
   in `package.json` and honored by the hover renderer, so each rich-hover section can be
   toggled independently. These were previously documented but not wired up.
+- **`linearLens.cache.persist`** (boolean, default `true`) — persist fetched issue metadata
+  to the workspace's storage so hovers, pills, and the rail stay instant across editor
+  reloads (stale entries refresh in the background). Turn off to keep the cache in memory only.
+- **`linearLens.inlineComments.enable`** (boolean, default `true`) — show read-only Linear
+  comment threads inline beside each issue reference via the native Comments panel. Requires
+  sign-in / a personal API key.
+- **`linearLens.views.enable`** (boolean, default `true`) — toggle the Linear Activity Bar
+  views (Issues in This File, My Issues, Assigned / Recent), plus
+  **`linearLens.views.recent.limit`** (number, default `25`, clamped 1–100) for how many
+  issues those views and the search load.
+- **`linearLens.teams.autoDetect`** (boolean, default `true`) — detect the signed-in
+  workspace's real team keys and slug (`organization.urlKey`) and use them for recognition,
+  so only real issue ids are highlighted and a workspace slug is no longer required to open
+  issues. An explicit `teamKeys` / `workspaceSlug` always overrides detection.
+- **`linearLens.copyMarkdown.includeComments`** (boolean, default `false`) — include the
+  comment thread when copying a ticket as Markdown.
 
 ### Changed
 

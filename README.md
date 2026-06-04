@@ -216,11 +216,16 @@ All settings live under the `linearLens.*` namespace.
 | `linearLens.statusBar.enable` | `boolean` | `true` | Show a status bar item for the Linear issue detected in the current git branch. |
 | `linearLens.api.enable` | `boolean` | `true` | Fetch live issue metadata for richer hovers when authenticated. Acts as a master kill-switch: when off, hovers stay basic even when a key is set. |
 | `linearLens.cache.ttlSeconds` | `number` | `300` | How long (in seconds) to cache fetched issue metadata before refetching. |
+| `linearLens.cache.persist` | `boolean` | `true` | Persist fetched issue metadata to this workspace's storage so hovers, pills, and the rail stay instant across editor reloads (stale entries are refreshed in the background). Turn off to keep the cache in memory only. |
+| `linearLens.inlineComments.enable` | `boolean` | `true` | Show read-only Linear comment threads inline beside each issue reference, using the native Comments panel. Requires sign-in / a personal API key. |
 | `linearLens.edit.enable` | `boolean` | `true` | Show issue-editing actions (Edit Issue, Edit Blockers, status/assignee/labels/team/project/priority/cycle). Turn off to hide all write actions. |
 | `linearLens.create.enable` | `boolean` | `true` | Show the **Create Issue** command in the palette and view title bar. Turn off to hide the create action. |
 | `linearLens.teams.enable` | `boolean` | `true` | Show the Teams and Active Cycle views in the Linear Lens sidebar. |
 | `linearLens.teams.show` | `string[]` | `[]` | Team keys to show in the Teams view (e.g. `["ENG", "DES"]`). Empty = show all accessible teams (filtered by `teams.viewerOnly`). |
 | `linearLens.teams.viewerOnly` | `boolean` | `true` | When `teams.show` is empty, show only teams you are a member of (vs. every team in the workspace). |
+| `linearLens.teams.autoDetect` | `boolean` | `true` | Detect the signed-in workspace's real team keys and slug (`organization.urlKey`) from Linear and use them for recognition, so only real issue ids are highlighted and a workspace slug is not required to open issues. An explicit `teamKeys` / `workspaceSlug` always overrides detection. |
+| `linearLens.views.enable` | `boolean` | `true` | Show the Linear Activity Bar views (Issues in This File, My Issues, Assigned / Recent). |
+| `linearLens.views.recent.limit` | `number` | `25` | How many issues to load in the My Issues / Assigned / Recent and search views (clamped to 1–100). |
 | `linearLens.board.enable` | `boolean` | `true` | Enable the team Board webview (columns by workflow state, drag a card to change its status). |
 | `linearLens.view.defaultGroupBy` | `"none" \| "status" \| "assignee" \| "priority" \| "project" \| "label"` | `"none"` | Default grouping for the issue tree views (My Issues, Assigned / Recent, Teams). |
 | `linearLens.view.defaultSortBy` | `"updated" \| "priority" \| "status" \| "created" \| "title" \| "number"` | `"updated"` | Default sort for the issue tree views. |
@@ -268,11 +273,13 @@ Available from the command palette (`Ctrl+Shift+P` / `Cmd+Shift+P`):
 
 ## Activity Bar views
 
-Linear Lens contributes a dedicated **Linear Lens** container in the Activity Bar with three views:
+Linear Lens contributes a dedicated **Linear Lens** container in the Activity Bar with these views:
 
 - **Issues in This File** — every Linear reference in the active editor, with a state dot when known. Click to jump to the line.
 - **My Issues** — issues assigned to you (requires sign-in or a personal API key).
 - **Assigned / Recent** — your recently updated issues (requires sign-in or a personal API key).
+- **Teams** — the teams you can access and their issues (toggle with `linearLens.teams.enable`).
+- **Active Cycle** — the current cycle's issues for a chosen team (toggle with `linearLens.teams.enable`).
 
 Right-click an issue to open it, copy its link or ID, check out its branch, or open it in your preferred coding tool.
 

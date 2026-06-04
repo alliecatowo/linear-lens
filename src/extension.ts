@@ -78,6 +78,14 @@ const SELECTION_CONTEXT_DEBOUNCE_MS = 150;
 /** Debounce (ms) for prefetching a document's refs after open / change. */
 const PREFETCH_DEBOUNCE_MS = 300;
 
+/**
+ * Debounce (ms) for the per-keystroke editor recompute (diagnostics +
+ * decorations + inline + rail + comments). Each of these `scanText`s the whole
+ * document, so coalescing a burst of edits into a single pass keeps typing in a
+ * large file cheap instead of paying N full scans on every keystroke.
+ */
+const EDIT_RECOMPUTE_DEBOUNCE_MS = 120;
+
 /** Document schemes Linear Lens scans: real files and untitled buffers. */
 const SUPPORTED_SCHEMES = new Set(["file", "untitled"]);
 
@@ -297,6 +305,46 @@ export function activate(context: vscode.ExtensionContext): void {
     },
   });
 
+  // Debounce the per-keystroke editor recompute so a burst of edits collapses
+  // into a single pass. Each surface (diagnostics, decorator, inline, rail,
+  // comments) scans the full document, so without this every keystroke in a
+  // large file pays several full scans. Keyed by document URI so edits in one
+  // buffer never starve another's pending recompute.
+  const editRecomputeTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  const scheduleEditRecompute = (doc: vscode.TextDocument): void => {
+    if (!SUPPORTED_SCHEMES.has(doc.uri.scheme)) {
+      return;
+    }
+    const key = doc.uri.toString();
+    const existing = editRecomputeTimers.get(key);
+    if (existing) {
+      clearTimeout(existing);
+    }
+    editRecomputeTimers.set(
+      key,
+      setTimeout(() => {
+        editRecomputeTimers.delete(key);
+        diagnostics.refresh(doc);
+        const editor = vscode.window.activeTextEditor;
+        if (editor?.document === doc) {
+          decorator.apply(editor);
+          inline.apply(editor);
+          rail.apply(editor);
+          comments.refresh(editor);
+          fileIssues.refresh();
+        }
+      }, EDIT_RECOMPUTE_DEBOUNCE_MS),
+    );
+  };
+  context.subscriptions.push({
+    dispose: () => {
+      for (const t of editRecomputeTimers.values()) {
+        clearTimeout(t);
+      }
+      editRecomputeTimers.clear();
+    },
+  });
+
   // Links + hovers.
   context.subscriptions.push(
     vscode.languages.registerDocumentLinkProvider(
@@ -363,13 +411,12 @@ export function activate(context: vscode.ExtensionContext): void {
       schedulePrefetch(doc);
     }),
     vscode.workspace.onDidChangeTextDocument((e) => {
-      diagnostics.refresh(e.document);
+      // Coalesce the (multi-scan) recompute of every editor surface so typing in
+      // a large file does not pay several full document scans on each keystroke.
+      // Diagnostics for non-active docs (multi-editor / background edits) are
+      // covered too: the recompute always refreshes the changed document.
+      scheduleEditRecompute(e.document);
       if (vscode.window.activeTextEditor?.document === e.document) {
-        decorator.apply(vscode.window.activeTextEditor);
-        inline.apply(vscode.window.activeTextEditor);
-        rail.apply(vscode.window.activeTextEditor);
-        comments.refresh(vscode.window.activeTextEditor);
-        fileIssues.refresh();
         schedulePrefetch(e.document);
       }
     }),

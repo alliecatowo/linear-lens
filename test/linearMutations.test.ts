@@ -45,13 +45,31 @@ function cfg(overrides: Partial<LinearLensConfig> = {}): LinearLensConfig {
     enableStatusBar: true,
     enableApi: true,
     cacheTtlSeconds: 300,
+    cachePersist: true,
     enableInlineStatus: true,
     inlineStatusStyle: "dot",
+    railInline: "activeLine",
+    railOverviewRuler: true,
+    enableBlameHover: true,
     enableViews: true,
     viewsRecentLimit: 50,
-    enableGutter: true,
+    copyMarkdownIncludeComments: false,
+    enableEdit: true,
+    enableCreate: true,
+    teamsEnable: true,
+    teamsShow: [],
+    teamsViewerOnly: true,
+    teamsAutoDetect: true,
+    boardEnable: true,
+    viewDefaultGroupBy: "none",
+    viewDefaultSortBy: "updated",
+    debug: false,
+    worktreeFilter: "off",
+    openInTool: "auto",
+    openInCustomCommand: "",
+    confirmDestructive: true,
     ...overrides,
-  } as LinearLensConfig;
+  };
 }
 
 const writeAuth: AuthHeader = { value: "lin_api_xxx", kind: "apiKey" };

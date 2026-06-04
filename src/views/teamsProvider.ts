@@ -611,8 +611,8 @@ export class CycleProvider implements vscode.TreeDataProvider<TeamsTreeNode> {
   /** Root: the active-cycle issues (or a prompt / message node). */
   private async rootChildren(): Promise<TeamsTreeNode[]> {
     const cfg = this.getCfg();
-    if (!viewsEnabled(cfg)) {
-      return [message("Linear views are disabled (linearLens.views.enable).")];
+    if (!viewsEnabled(cfg) || !teamsEnabled(cfg)) {
+      return [message("The Active Cycle view is disabled (linearLens.teams.enable).")];
     }
     if (!this.safeHasAuth()) {
       return [message("Sign in to Linear", COMMAND_SIGN_IN)];
