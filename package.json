@@ -661,7 +661,7 @@
         },
         "linearLens.inlineStatus.enable": {
           "type": "boolean",
-          "default": true,
+          "default": false,
           "description": "Show a small colored status indicator next to each issue reference, reflecting the live workflow state. Requires sign-in / a personal API key."
         },
         "linearLens.inlineStatus.style": {
@@ -673,10 +673,30 @@
           "default": "dot",
           "description": "Inline status style: a colored dot or a labeled state pill."
         },
-        "linearLens.gutter.enable": {
+        "linearLens.rail.inline": {
+          "type": "string",
+          "enum": [
+            "off",
+            "activeLine",
+            "allLines"
+          ],
+          "enumDescriptions": [
+            "No end-of-line rail annotation.",
+            "Show the rail only on the line the cursor is on.",
+            "Show the rail on every line that contains a reference."
+          ],
+          "default": "activeLine",
+          "markdownDescription": "Muted end-of-line annotation after a reference's line (`<ID> · <state> · <title>`), GitLens/Error-Lens style. Reads cached metadata; never blocks typing. Click it to open the issue detail."
+        },
+        "linearLens.rail.overviewRuler": {
           "type": "boolean",
           "default": true,
-          "description": "Show a colored Linear workflow-state circle in the editor gutter beside each line containing an issue reference. Requires sign-in / a personal API key."
+          "description": "Show status-colored ticks on the scrollbar overview ruler at lines containing a Linear reference."
+        },
+        "linearLens.blameHover.enable": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "When you hover a line, look up the line's last commit via git blame and, if its commit message mentions a Linear issue, show a lightweight hover entry (`📋 <ID> · View in Linear · Open details`). Does NOT fetch the full issue card."
         },
         "linearLens.inlineComments.enable": {
           "type": "boolean",

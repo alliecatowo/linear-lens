@@ -70,7 +70,7 @@ export interface EditCommandDeps {
   readonly client: LinearClient;
   /** Write-auth dependencies (SecretStorage) for the write-auth gate. */
   readonly writeAuthDeps: WriteAuthDeps;
-  /** Re-paint editor surfaces (hover/inline/gutter) after a write. */
+  /** Re-paint editor surfaces (hover/inline) after a write. */
   readonly refreshUi?: () => void;
   /** Refresh the Activity Bar trees after a write. */
   readonly refreshViews?: () => void;

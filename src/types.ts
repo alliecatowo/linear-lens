@@ -135,12 +135,16 @@ export interface LinearLensConfig {
   enableInlineStatus: boolean;
   /** `linearLens.inlineStatus.style` — inline status indicator style ("dot" | "pill"). */
   inlineStatusStyle: "dot" | "pill";
+  /** `linearLens.rail.inline` — end-of-line rail annotation scope. */
+  railInline: "off" | "activeLine" | "allLines";
+  /** `linearLens.rail.overviewRuler` — show overview-ruler status ticks at ref lines. */
+  railOverviewRuler: boolean;
+  /** `linearLens.blameHover.enable` — lightweight blame-derived hover entry. */
+  enableBlameHover: boolean;
   /** `linearLens.views.enable` — show the Linear Activity Bar tree views. */
   enableViews: boolean;
   /** `linearLens.views.recent.limit` — how many issues to load in the list/search views. */
   viewsRecentLimit: number;
-  /** `linearLens.gutter.enable` — show a state-colored circle in the gutter beside each ref. */
-  enableGutter: boolean;
   /** `linearLens.copyMarkdown.includeComments` — include the comment thread when copying a ticket as Markdown. */
   copyMarkdownIncludeComments: boolean;
   /** `linearLens.edit.enable` — show the issue-editing actions (write-gated at runtime). */

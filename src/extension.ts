@@ -15,11 +15,12 @@ import { CONFIG_SECTION, getConfig, issueUrl } from "./config";
 import { createLinearClient, API_KEY_SECRET } from "./linearClient";
 import { IssueLinkProvider } from "./providers/linkProvider";
 import { IssueHoverProvider } from "./providers/hoverProvider";
+import { BlameHoverProvider } from "./providers/blameHoverProvider";
 import { DiagnosticsManager } from "./diagnostics";
 import { BranchStatusBar } from "./branch";
 import { IssueDecorator } from "./decorations";
 import { InlineStatusDecorator } from "./decorations/inlineStatus";
-import { GutterDecorator } from "./decorations/gutter";
+import { RailDecorator } from "./decorations/rail";
 import { LinearCommentController } from "./comments/commentController";
 import { registerCommands } from "./commands";
 import { registerCopyCommands } from "./copyCommands";
@@ -160,6 +161,9 @@ export function activate(context: vscode.ExtensionContext): void {
   // every surface when detection changes.
   const detection = new DetectionService(getCfg, client, makeStore(), () => {
     refreshUi();
+    // The effective team-key allowlist changed, so the rail's per-version scan
+    // cache is stale; `refresh()` drops it (and rebuilds types) before re-applying.
+    rail.refresh();
     refreshViews();
     computeSelectionContext(getCfg(), detection);
   });
@@ -234,8 +238,9 @@ export function activate(context: vscode.ExtensionContext): void {
   // Live, auth-gated inline status indicator (dot/pill) after each reference.
   const inline = new InlineStatusDecorator(getCfg, client, getTeamKeys);
 
-  // Live, auth-gated gutter status circle beside each line containing a reference.
-  const gutter = new GutterDecorator(getCfg, client);
+  // Live, auth-gated GitLens/Error-Lens-style rail: an end-of-line annotation
+  // (`<ID> · <state> · <title>`) and/or status-colored overview-ruler ticks.
+  const rail = new RailDecorator(getCfg, client, getTeamKeys);
 
   // Live, auth-gated read-only Linear comment threads inline beside each reference.
   const comments = new LinearCommentController(getCfg, client);
@@ -246,7 +251,7 @@ export function activate(context: vscode.ExtensionContext): void {
   const refreshUi = (): void => {
     decorator.applyToVisible();
     inline.applyToVisible();
-    gutter.applyToVisible();
+    rail.applyToVisible();
     comments.refreshActive();
   };
 
@@ -302,6 +307,13 @@ export function activate(context: vscode.ExtensionContext): void {
       DOCUMENT_SELECTOR,
       new IssueHoverProvider(getCfg, client, getTeamKeys, getSlug),
     ),
+    // A SECOND, lightweight hover: when the hovered line has no direct ref but its
+    // last commit (via git blame) mentions a Linear issue, contribute a minimal
+    // `📋 <ID> · View in Linear · Open details` entry (no full card, no fetch).
+    vscode.languages.registerHoverProvider(
+      DOCUMENT_SELECTOR,
+      new BlameHoverProvider(getCfg, getTeamKeys, getSlug),
+    ),
   );
 
   // Diagnostics (marker-bound refs only).
@@ -310,7 +322,7 @@ export function activate(context: vscode.ExtensionContext): void {
   diagnostics.refreshAll(vscode.workspace.textDocuments);
   decorator.applyToVisible();
   inline.applyToVisible();
-  gutter.applyToVisible();
+  rail.applyToVisible();
   comments.refreshActive();
 
   // Register the Activity Bar tree views. Providers are ALWAYS registered (content
@@ -343,7 +355,7 @@ export function activate(context: vscode.ExtensionContext): void {
     { dispose: () => diagnostics.dispose() },
     { dispose: () => decorator.dispose() },
     { dispose: () => inline.dispose() },
-    { dispose: () => gutter.dispose() },
+    { dispose: () => rail.dispose() },
     { dispose: () => comments.dispose() },
     vscode.workspace.onDidOpenTextDocument((doc) => {
       diagnostics.refresh(doc);
@@ -355,7 +367,7 @@ export function activate(context: vscode.ExtensionContext): void {
       if (vscode.window.activeTextEditor?.document === e.document) {
         decorator.apply(vscode.window.activeTextEditor);
         inline.apply(vscode.window.activeTextEditor);
-        gutter.apply(vscode.window.activeTextEditor);
+        rail.apply(vscode.window.activeTextEditor);
         comments.refresh(vscode.window.activeTextEditor);
         fileIssues.refresh();
         schedulePrefetch(e.document);
@@ -365,7 +377,7 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.window.onDidChangeActiveTextEditor((editor) => {
       decorator.apply(editor);
       inline.apply(editor);
-      gutter.apply(editor);
+      rail.apply(editor);
       comments.refresh(editor);
       // The file view follows the active editor; refresh its refs + context keys.
       fileIssues.refresh();
@@ -378,7 +390,7 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.window.onDidChangeVisibleTextEditors(() => {
       decorator.applyToVisible();
       inline.applyToVisible();
-      gutter.applyToVisible();
+      rail.applyToVisible();
       comments.refreshActive();
     }),
   );
@@ -395,7 +407,12 @@ export function activate(context: vscode.ExtensionContext): void {
     }, SELECTION_CONTEXT_DEBOUNCE_MS);
   }
   context.subscriptions.push(
-    vscode.window.onDidChangeTextEditorSelection(() => updateSelectionContext()),
+    vscode.window.onDidChangeTextEditorSelection((e) => {
+      updateSelectionContext();
+      // Let the `activeLine` rail follow the cursor; this is cheap (reuses the
+      // cached document scan and only re-picks the active line's annotation).
+      rail.onSelectionChanged(e.textEditor);
+    }),
     { dispose: () => { if (selectionTimer) { clearTimeout(selectionTimer); } } },
   );
   // Seed the keys for the current editor on activation.
@@ -782,7 +799,7 @@ export function activate(context: vscode.ExtensionContext): void {
           setAuthedContext();
           refreshUi();
           inline.refresh();
-          gutter.refresh();
+          rail.refresh();
           comments.refreshActive();
           refreshViews();
           refreshDetail();
@@ -805,7 +822,7 @@ export function activate(context: vscode.ExtensionContext): void {
       branch.refresh();
       decorator.applyToVisible();
       inline.refresh();
-      gutter.refresh();
+      rail.refresh();
       comments.refreshActive();
       refreshViews();
       refreshDetail();

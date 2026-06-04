@@ -55,6 +55,13 @@ diagnostics.
   or Linear Connect), including a color-coded workflow-state dot, assignee and subscriber
   avatars, colored label chips, the issue's suggested git branch name, one-click Checkout /
   View Diff branch actions, priority, and project name.
+- **Rail** — a GitLens / Error-Lens-style muted end-of-line annotation
+  (`ENG-123 · In Progress · Fix the parser`) plus status-colored ticks on the scrollbar
+  overview ruler. Reads cached metadata, so it never blocks typing. Shows on the active line
+  by default (configurable to every reference line or off).
+- **Blame hover** — hover a line whose Linear reference lives in its *last commit* (not the
+  code) and Linear Lens blames the line, then surfaces a lightweight
+  `📋 ENG-123 · View in Linear · Open details` hover entry.
 - Problems-panel diagnostics for marker-bound references only, with configurable severity and
   custom marker keywords.
 - Status bar item for the current branch's issue, with a one-click open command.
@@ -200,8 +207,11 @@ All settings live under the `linearLens.*` namespace.
 | `linearLens.hover.showAvatars` | `boolean` | `true` | Show stacked assignee and subscriber avatars in rich hovers. Falls back to a plain text name when the avatar URL is unavailable. |
 | `linearLens.hover.showLabels` | `boolean` | `true` | Show issue labels (with colored dots) in rich hovers. |
 | `linearLens.hover.showBranchActions` | `boolean` | `true` | Show the issue's suggested git branch name with Checkout and View Diff action links in rich hovers. |
-| `linearLens.inlineStatus.enable` | `boolean` | `true` | Show a small colored status indicator immediately after each issue reference, reflecting its live workflow state. |
+| `linearLens.inlineStatus.enable` | `boolean` | `false` | Show a small colored status indicator immediately after each issue reference, reflecting its live workflow state. Off by default; the rail is the recommended live-state surface. |
 | `linearLens.inlineStatus.style` | `"dot" \| "pill"` | `"dot"` | Style of the inline status indicator: a single colored dot, or a labeled state pill. |
+| `linearLens.rail.inline` | `"off" \| "activeLine" \| "allLines"` | `"activeLine"` | Muted end-of-line annotation (`<ID> · <state> · <title>`), GitLens / Error-Lens style. Reads cached metadata; never blocks typing. `activeLine` shows it only on the cursor's line, `allLines` on every reference line. |
+| `linearLens.rail.overviewRuler` | `boolean` | `true` | Show status-colored ticks on the scrollbar overview ruler at lines containing a Linear reference. |
+| `linearLens.blameHover.enable` | `boolean` | `true` | When you hover a line, look up its last commit via git blame and, if the commit message mentions a Linear issue, show a lightweight `📋 <ID> · View in Linear · Open details` hover entry. Does not fetch the full issue card. |
 | `linearLens.decorations.enable` | `boolean` | `true` | Visibly highlight recognized issue references in the editor (dotted underline in the link color). |
 | `linearLens.statusBar.enable` | `boolean` | `true` | Show a status bar item for the Linear issue detected in the current git branch. |
 | `linearLens.api.enable` | `boolean` | `true` | Fetch live issue metadata for richer hovers when authenticated. Acts as a master kill-switch: when off, hovers stay basic even when a key is set. |

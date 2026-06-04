@@ -9,6 +9,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Rail** — a GitLens / Error-Lens-style live surface with two parts: a muted end-of-line
+  annotation (`ENG-123 · In Progress · Fix the parser`) and status-colored ticks on the
+  scrollbar overview ruler at reference lines. It reads the shared warm metadata cache
+  (stale-while-revalidate), so it renders instantly and never blocks typing or triggers a
+  per-keystroke fetch. Controlled by **`linearLens.rail.inline`**
+  (`"off" | "activeLine" | "allLines"`, default `"activeLine"` — the annotation follows the
+  cursor's line) and **`linearLens.rail.overviewRuler`** (boolean, default `true`). The rail's
+  ruler ticks sit on the center lane so they don't stack with the existing reference ticks.
+- **Blame hover** (`linearLens.blameHover.enable`, boolean, default `true`) — when you hover a
+  line that has no direct reference in the code but whose last commit (via `git blame`) mentions
+  a Linear issue, Linear Lens contributes a lightweight `📋 <ID> · View in Linear · Open details`
+  hover entry. It never fetches the full issue card and defers to the rich hover for lines that
+  already carry a direct reference.
 - **Granular per-feature enable toggles** — every major surface now has its own on/off switch:
   `linearLens.edit.enable`, `linearLens.create.enable`, `linearLens.teams.enable`,
   `linearLens.board.enable`. The `when:` clauses on all menus and views are reactive (no
@@ -42,6 +55,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `linearLens.hover.showBranchActions`** settings (all default `true`) are now contributed
   in `package.json` and honored by the hover renderer, so each rich-hover section can be
   toggled independently. These were previously documented but not wired up.
+
+### Changed
+
+- **The inline status indicator (`linearLens.inlineStatus.enable`) now defaults to `false`.**
+  The new rail is the recommended live-state surface; enable the pill explicitly if you prefer
+  an in-line dot/pill instead of (or in addition to) the rail.
+
+### Removed
+
+- **The gutter decoration has been removed entirely** — the `linearLens.gutter.enable` setting,
+  the `enableGutter` config field, the per-state gutter icon assets, and all related wiring are
+  gone. The overview-ruler ticks (existing reference ticks plus the new rail's status-colored
+  ticks) and the inline status / rail surfaces replace it.
 
 ### Fixed
 

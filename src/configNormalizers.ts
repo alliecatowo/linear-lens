@@ -45,6 +45,13 @@ const OPEN_IN_TOOL_VALUES: readonly OpenInTool[] = [
   "custom",
 ];
 
+/** The valid `linearLens.rail.inline` enum values. */
+const RAIL_INLINE_VALUES: readonly ("off" | "activeLine" | "allLines")[] = [
+  "off",
+  "activeLine",
+  "allLines",
+];
+
 /**
  * Validate an unknown value against the group-by enum, defaulting to `"none"`.
  * Exported for direct unit testing without mocking VS Code.
@@ -85,4 +92,18 @@ export function normalizeOpenInTool(value: unknown): OpenInTool {
     (OPEN_IN_TOOL_VALUES as readonly string[]).includes(value)
     ? (value as OpenInTool)
     : "auto";
+}
+
+/**
+ * Validate an unknown value against the rail-inline enum, defaulting to
+ * `"activeLine"` for anything unrecognized. Exported for direct unit testing
+ * without mocking VS Code.
+ */
+export function normalizeRailInline(
+  value: unknown,
+): "off" | "activeLine" | "allLines" {
+  return typeof value === "string" &&
+    (RAIL_INLINE_VALUES as readonly string[]).includes(value)
+    ? (value as "off" | "activeLine" | "allLines")
+    : "activeLine";
 }

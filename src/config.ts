@@ -16,6 +16,7 @@ import {
 import {
   normalizeGroupBy,
   normalizeOpenInTool,
+  normalizeRailInline,
   normalizeSortBy,
   normalizeWorktreeFilter,
 } from "./configNormalizers";
@@ -26,6 +27,7 @@ import {
 export {
   normalizeGroupBy,
   normalizeOpenInTool,
+  normalizeRailInline,
   normalizeSortBy,
   normalizeWorktreeFilter,
 } from "./configNormalizers";
@@ -169,11 +171,13 @@ export function getConfig(): LinearLensConfig {
       DEFAULT_CACHE_TTL_SECONDS,
     ),
     cachePersist: toBooleanOr(cfg.get("cache.persist"), true),
-    enableInlineStatus: toBooleanOr(cfg.get("inlineStatus.enable"), true),
+    enableInlineStatus: toBooleanOr(cfg.get("inlineStatus.enable"), false),
     inlineStatusStyle: normalizeInlineStyle(cfg.get("inlineStatus.style")),
+    railInline: normalizeRailInline(cfg.get("rail.inline")),
+    railOverviewRuler: toBooleanOr(cfg.get("rail.overviewRuler"), true),
+    enableBlameHover: toBooleanOr(cfg.get("blameHover.enable"), true),
     enableViews: toBooleanOr(cfg.get("views.enable"), true),
     viewsRecentLimit: normalizeListLimit(cfg.get("views.recent.limit")),
-    enableGutter: toBooleanOr(cfg.get("gutter.enable"), true),
     copyMarkdownIncludeComments: toBooleanOr(
       cfg.get("copyMarkdown.includeComments"),
       false,
