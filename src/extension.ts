@@ -38,6 +38,8 @@ import {
 import { DEFAULT_SORT, type GroupBy, type IssueSort, type SortBy } from "./views/grouping";
 import type { LinearTreeNode } from "./views/issueTreeModel";
 import { getLinearOAuthHeader } from "./auth";
+import { DetectionService } from "./detection";
+import { SyncStatusIndicator } from "./syncStatus";
 import { parseIssueId, scanText } from "./parser";
 import { TicketPanel } from "./webview/ticketPanel";
 import {
@@ -55,6 +57,7 @@ import type {
   IssueMetadata,
   LinearClient,
   LinearLensConfig,
+  MetadataStore,
   TeamOption,
   TicketDetail,
 } from "./types";
@@ -71,11 +74,30 @@ const CONTEXT_HAS_REFS = "linearLens.hasRefs";
 /** Debounce (ms) for recomputing the cursor/document context keys on selection. */
 const SELECTION_CONTEXT_DEBOUNCE_MS = 150;
 
+/** Debounce (ms) for prefetching a document's refs after open / change. */
+const PREFETCH_DEBOUNCE_MS = 300;
+
+/** Document schemes Linear Lens scans: real files and untitled buffers. */
+const SUPPORTED_SCHEMES = new Set(["file", "untitled"]);
+
 /** Documents Linear Lens operates on: real files and untitled buffers. */
 const DOCUMENT_SELECTOR: vscode.DocumentSelector = [
   { scheme: "file" },
   { scheme: "untitled" },
 ];
+
+/** De-dupe a list of {@link IssueId}s by their `normalized` form (order-stable). */
+function dedupeById(ids: IssueId[]): IssueId[] {
+  const seen = new Set<string>();
+  const out: IssueId[] = [];
+  for (const id of ids) {
+    if (!seen.has(id.normalized)) {
+      seen.add(id.normalized);
+      out.push(id);
+    }
+  }
+  return out;
+}
 
 /**
  * Activate Linear Lens: wire the parser-backed providers, diagnostics,
@@ -106,7 +128,44 @@ export function activate(context: vscode.ExtensionContext): void {
     return undefined;
   };
 
-  const client = createLinearClient(getCfg, resolveAuth);
+  // Adapt this workspace's Memento (`context.workspaceState`) to the persistence
+  // surface the client + detection service consume. Honors `cache.persist`: when
+  // off, the client is built WITHOUT a store so the metadata cache stays purely
+  // in-memory (it is rehydrated/persisted only when a store is injected).
+  const makeStore = (): MetadataStore => ({
+    get: (k) => context.workspaceState.get(k),
+    set: (k, v) => context.workspaceState.update(k, v),
+    keys: () => context.workspaceState.keys(),
+  });
+
+  // Subtle status-bar "syncing…" pulse driven by the client's in-flight count.
+  const sync = new SyncStatusIndicator();
+  context.subscriptions.push({ dispose: () => sync.dispose() });
+
+  const client = createLinearClient(
+    getCfg,
+    resolveAuth,
+    resolveAuth,
+    undefined,
+    undefined,
+    cfg.cachePersist ? makeStore() : undefined,
+    (n) => sync.set(n),
+  );
+
+  // Auth-aware detection: blends the configured team keys / slug with the real
+  // signed-in workspace's org slug + team keys (fetched via the client, cached in
+  // workspaceState). Every scan consumer reads `effectiveTeamKeys()` /
+  // `effectiveSlug()` so only real refs are recognized and the "no slug" nag is
+  // dropped once a slug is available (configured OR detected). Re-scans + repaints
+  // every surface when detection changes.
+  const detection = new DetectionService(getCfg, client, makeStore(), () => {
+    refreshUi();
+    refreshViews();
+    computeSelectionContext(getCfg(), detection);
+  });
+  context.subscriptions.push({ dispose: () => detection.dispose() });
+  const getTeamKeys = (): string[] | undefined => detection.effectiveTeamKeys();
+  const getSlug = (): string => detection.effectiveSlug();
 
   // Active grouping/sort for the team + cycle trees. Until the saved-view store
   // lands, this resolves the per-workspace defaults from configuration
@@ -117,7 +176,7 @@ export function activate(context: vscode.ExtensionContext): void {
   // Current-branch issue status bar — constructed early so the list views can
   // read the checked-out branch's issue id for worktree-aware emphasis. Started
   // (watcher + first render) further below.
-  const branch = new BranchStatusBar(getCfg);
+  const branch = new BranchStatusBar(getCfg, getTeamKeys);
 
   // Lazily expose the current git context (the checked-out branch's issue id) so
   // the My / Recent list views can sort the matching issue to the top when
@@ -133,7 +192,7 @@ export function activate(context: vscode.ExtensionContext): void {
   };
 
   // Activity Bar tree views (constructed early so refreshUi can fold them in).
-  const fileIssues = new FileIssuesProvider(getCfg, client);
+  const fileIssues = new FileIssuesProvider(getCfg, client, getTeamKeys, getSlug);
   const myIssues = new IssueListProvider("mine", getCfg, client, getGitContext);
   const recentIssues = new IssueListProvider("recent", getCfg, client, getGitContext);
   const teams = new TeamsProvider(getCfg, client, getGrouping);
@@ -147,6 +206,16 @@ export function activate(context: vscode.ExtensionContext): void {
   // viewsWelcome sign-in prompts render immediately instead of empty trees.
   setAuthedContext();
 
+  // (Re)detect the signed-in workspace's real team keys + slug, but ONLY when
+  // `teams.autoDetect` is enabled. When off, the configured `teamKeys` /
+  // `workspaceSlug` still apply via the detection service's precedence; we just
+  // never hit the network. Fire-and-forget; never throws.
+  const maybeRefreshDetection = (): void => {
+    if (getCfg().teamsAutoDetect) {
+      void detection.refresh();
+    }
+  };
+
   // Refresh after the FIRST auth read so context keys / views reflect real state.
   void client.refreshAuth().then(() => {
     setAuthedContext();
@@ -155,13 +224,15 @@ export function activate(context: vscode.ExtensionContext): void {
     recentIssues.refresh();
     teams.refresh();
     cycle.refresh();
+    // Kick auth-aware detection now that the first auth read has resolved.
+    maybeRefreshDetection();
   });
 
   // In-editor highlight of references.
-  const decorator = new IssueDecorator(getCfg);
+  const decorator = new IssueDecorator(getCfg, getTeamKeys);
 
   // Live, auth-gated inline status indicator (dot/pill) after each reference.
-  const inline = new InlineStatusDecorator(getCfg, client);
+  const inline = new InlineStatusDecorator(getCfg, client, getTeamKeys);
 
   // Live, auth-gated gutter status circle beside each line containing a reference.
   const gutter = new GutterDecorator(getCfg, client);
@@ -179,21 +250,63 @@ export function activate(context: vscode.ExtensionContext): void {
     comments.refreshActive();
   };
 
+  // Per-document debounce timers for prefetching a file's refs so the first hover
+  // / pill / rail render is instant (the cache is warm by then). Disposed on
+  // deactivate. The prefetch itself is bounded + deduped + skips fresh ids inside
+  // the client; here we only debounce + scan + de-dupe the document's refs.
+  const prefetchTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  const schedulePrefetch = (doc: vscode.TextDocument): void => {
+    if (!SUPPORTED_SCHEMES.has(doc.uri.scheme)) {
+      return;
+    }
+    const key = doc.uri.toString();
+    const existing = prefetchTimers.get(key);
+    if (existing) {
+      clearTimeout(existing);
+    }
+    prefetchTimers.set(
+      key,
+      setTimeout(() => {
+        prefetchTimers.delete(key);
+        try {
+          const refs = scanText(doc.getText(), {
+            teamKeys: getTeamKeys(),
+            markers: getCfg().markers,
+          });
+          const ids = dedupeById(refs.map((r) => r.issue));
+          if (ids.length > 0) {
+            void client.prefetch(ids);
+          }
+        } catch {
+          // Prefetch is best-effort warming; never surface a failure.
+        }
+      }, PREFETCH_DEBOUNCE_MS),
+    );
+  };
+  context.subscriptions.push({
+    dispose: () => {
+      for (const t of prefetchTimers.values()) {
+        clearTimeout(t);
+      }
+      prefetchTimers.clear();
+    },
+  });
+
   // Links + hovers.
   context.subscriptions.push(
     vscode.languages.registerDocumentLinkProvider(
       DOCUMENT_SELECTOR,
-      new IssueLinkProvider(getCfg),
+      new IssueLinkProvider(getCfg, getTeamKeys, getSlug),
     ),
     vscode.languages.registerHoverProvider(
       DOCUMENT_SELECTOR,
-      new IssueHoverProvider(getCfg, client),
+      new IssueHoverProvider(getCfg, client, getTeamKeys, getSlug),
     ),
   );
 
   // Diagnostics (marker-bound refs only).
   const collection = vscode.languages.createDiagnosticCollection("linearLens");
-  const diagnostics = new DiagnosticsManager(collection, getCfg);
+  const diagnostics = new DiagnosticsManager(collection, getCfg, getTeamKeys);
   diagnostics.refreshAll(vscode.workspace.textDocuments);
   decorator.applyToVisible();
   inline.applyToVisible();
@@ -235,6 +348,7 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.workspace.onDidOpenTextDocument((doc) => {
       diagnostics.refresh(doc);
       refreshUi();
+      schedulePrefetch(doc);
     }),
     vscode.workspace.onDidChangeTextDocument((e) => {
       diagnostics.refresh(e.document);
@@ -244,6 +358,7 @@ export function activate(context: vscode.ExtensionContext): void {
         gutter.apply(vscode.window.activeTextEditor);
         comments.refresh(vscode.window.activeTextEditor);
         fileIssues.refresh();
+        schedulePrefetch(e.document);
       }
     }),
     vscode.workspace.onDidCloseTextDocument((doc) => diagnostics.clear(doc.uri)),
@@ -255,6 +370,10 @@ export function activate(context: vscode.ExtensionContext): void {
       // The file view follows the active editor; refresh its refs + context keys.
       fileIssues.refresh();
       updateSelectionContext();
+      // Warm the cache for the newly-focused document's refs (guard undefined).
+      if (editor) {
+        schedulePrefetch(editor.document);
+      }
     }),
     vscode.window.onDidChangeVisibleTextEditors(() => {
       decorator.applyToVisible();
@@ -272,7 +391,7 @@ export function activate(context: vscode.ExtensionContext): void {
     }
     selectionTimer = setTimeout(() => {
       selectionTimer = undefined;
-      computeSelectionContext(getCfg());
+      computeSelectionContext(getCfg(), detection);
     }, SELECTION_CONTEXT_DEBOUNCE_MS);
   }
   context.subscriptions.push(
@@ -280,7 +399,11 @@ export function activate(context: vscode.ExtensionContext): void {
     { dispose: () => { if (selectionTimer) { clearTimeout(selectionTimer); } } },
   );
   // Seed the keys for the current editor on activation.
-  computeSelectionContext(getCfg());
+  computeSelectionContext(getCfg(), detection);
+  // Warm the cache for the already-open active document (no open event fires for it).
+  if (vscode.window.activeTextEditor) {
+    schedulePrefetch(vscode.window.activeTextEditor.document);
+  }
 
   // Current-branch issue status bar (constructed above; start the watcher now).
   branch.start();
@@ -314,7 +437,7 @@ export function activate(context: vscode.ExtensionContext): void {
 
   // Coding-agent bridge + branch/diff/agent command handlers (local, read-only).
   const agent = createAgentBridge(getCfg);
-  const branchDeps = { getCfg, client, agent };
+  const branchDeps = { getCfg, getTeamKeys, getSlug, client, agent };
   registerBranchActions(context, branchDeps);
 
   // `linearLens.openInTool`: the canonical "Open in Coding Tool" command (settings
@@ -336,7 +459,7 @@ export function activate(context: vscode.ExtensionContext): void {
           return;
         }
         // The "url" and "command" actions both need the issue id + canonical URL.
-        const resolved = await resolveOpenInTarget(arg, client, cfg);
+        const resolved = await resolveOpenInTarget(arg, client, cfg, getTeamKeys(), getSlug());
         if (!resolved) {
           void vscode.window.showWarningMessage(
             "Linear Lens: no Linear issue id was provided to open.",
@@ -372,7 +495,7 @@ export function activate(context: vscode.ExtensionContext): void {
     onCheckoutBranch: async ({ id, branchName }) => {
       await vscode.commands.executeCommand("linearLens.checkoutBranch", { id, branchName });
     },
-    onRefresh: async (id) => fetchTicketMetadata(client, getCfg, id),
+    onRefresh: async (id) => fetchTicketMetadata(client, getTeamKeys, id),
     // Webview detail buttons (E2). The host passes the panel's cached id; the
     // edit/blocker commands re-check write access (no-op + prompt when missing).
     onEditIssue: async (id) => {
@@ -389,13 +512,13 @@ export function activate(context: vscode.ExtensionContext): void {
   // renders it — or an actionable error pane. Never throws.
   const showTicket = async (id: string): Promise<void> => {
     const cfg = getCfg();
-    const parsed = parseIssueId(id, { teamKeys: cfg.teamKeys });
+    const parsed = parseIssueId(id, { teamKeys: getTeamKeys() });
     if (!parsed) {
       detail.showError(id, `"${id}" is not a valid Linear issue id.`);
       return;
     }
     detail.showLoading(parsed.normalized);
-    const issue = await fetchTicketMetadata(client, getCfg, parsed.normalized);
+    const issue = await fetchTicketMetadata(client, getTeamKeys, parsed.normalized);
     if (issue) {
       detail.render(issue);
     } else {
@@ -415,7 +538,7 @@ export function activate(context: vscode.ExtensionContext): void {
   // tree selection (`{ id }`), or the reference under the editor cursor.
   context.subscriptions.push(
     vscode.commands.registerCommand("linearLens.openTicket", async (arg?: unknown) => {
-      let id = resolveTicketId(arg, getCfg());
+      let id = resolveTicketId(arg, getCfg(), getTeamKeys());
       if (!id) {
         // Palette invocation with no cursor ref / tree selection: prompt for one.
         const input = await vscode.window.showInputBox({
@@ -427,7 +550,7 @@ export function activate(context: vscode.ExtensionContext): void {
         if (input === undefined) {
           return;
         }
-        const parsed = parseIssueId(input, { teamKeys: getCfg().teamKeys });
+        const parsed = parseIssueId(input, { teamKeys: getTeamKeys() });
         if (!parsed) {
           void vscode.window.showWarningMessage(
             `Linear Lens: "${input.trim()}" is not a valid Linear issue id.`,
@@ -502,17 +625,20 @@ export function activate(context: vscode.ExtensionContext): void {
   // Commands (search / navigation / view / auth / branch).
   registerCommands(context, {
     getCfg,
+    getTeamKeys,
+    getSlug,
     client,
     branch,
     diagnostics,
     refreshConfig,
     refreshUi,
+    onAuthChanged: maybeRefreshDetection,
     secrets: context.secrets,
     views: { file: fileIssues, mine: myIssues, recent: recentIssues, fileTreeView },
   });
 
   // Copy-as-Markdown command (E1): read-only, no write-auth gate.
-  registerCopyCommands(context, { getCfg, client });
+  registerCopyCommands(context, { getCfg, getTeamKeys, client });
 
   // Edit + blocker commands (E2). Every mutating command re-checks write access at
   // runtime via `ensureWriteAuth` (prompting / no-op when a write credential is
@@ -523,6 +649,7 @@ export function activate(context: vscode.ExtensionContext): void {
   const writeAuthDeps = { secrets: context.secrets };
   registerEditCommands(context, {
     getCfg,
+    getTeamKeys,
     client,
     writeAuthDeps,
     refreshUi,
@@ -532,6 +659,7 @@ export function activate(context: vscode.ExtensionContext): void {
   });
   registerBlockerCommands(context, {
     getCfg,
+    getTeamKeys,
     client,
     writeAuthDeps,
     refreshUi,
@@ -584,7 +712,7 @@ export function activate(context: vscode.ExtensionContext): void {
       }
       // Invalidate the moved issue + repaint every surface; re-fetch the board so
       // the optimistic move is reconciled with Linear's authoritative state.
-      const moved = parseIssueId(result.value.identifier, { teamKeys: getCfg().teamKeys });
+      const moved = parseIssueId(result.value.identifier, { teamKeys: getTeamKeys() });
       if (moved) {
         invalidate(moved);
       }
@@ -658,6 +786,8 @@ export function activate(context: vscode.ExtensionContext): void {
           comments.refreshActive();
           refreshViews();
           refreshDetail();
+          // Re-detect the workspace's team keys / slug on sign-in / out.
+          maybeRefreshDetection();
         });
       }
     }),
@@ -679,6 +809,10 @@ export function activate(context: vscode.ExtensionContext): void {
       comments.refreshActive();
       refreshViews();
       refreshDetail();
+      // The config override (teamKeys / workspaceSlug) takes effect immediately
+      // via the effective getters; still refresh detection so the detected
+      // fallback stays current (honoring `teams.autoDetect`).
+      maybeRefreshDetection();
     }),
   );
 }
@@ -919,9 +1053,14 @@ function toBoardCard(item: IssueListItem): BoardCard {
  * Returns the normalized id, or `undefined` when none can be resolved.
  *
  * @param arg The loosely-typed command argument.
- * @param cfg The current resolved configuration (for team-key parsing).
+ * @param cfg The current resolved configuration (for markers).
+ * @param teamKeys The effective team-key allowlist (auth-aware detection).
  */
-function resolveTicketId(arg: unknown, cfg: LinearLensConfig): string | undefined {
+function resolveTicketId(
+  arg: unknown,
+  cfg: LinearLensConfig,
+  teamKeys: string[] | undefined,
+): string | undefined {
   // 1. Explicit string / `{ id }` argument (palette input, tree selection).
   let raw: string | undefined;
   if (typeof arg === "string") {
@@ -931,7 +1070,7 @@ function resolveTicketId(arg: unknown, cfg: LinearLensConfig): string | undefine
     raw = typeof candidate === "string" ? candidate.trim() : undefined;
   }
   if (raw) {
-    const parsed = parseIssueId(raw, { teamKeys: cfg.teamKeys });
+    const parsed = parseIssueId(raw, { teamKeys });
     return parsed?.normalized ?? raw;
   }
 
@@ -943,7 +1082,7 @@ function resolveTicketId(arg: unknown, cfg: LinearLensConfig): string | undefine
     }
     const document = editor.document;
     const refs = scanText(document.getText(), {
-      teamKeys: cfg.teamKeys,
+      teamKeys,
       markers: cfg.markers,
     });
     const offset = document.offsetAt(editor.selection.active);
@@ -963,18 +1102,22 @@ function resolveTicketId(arg: unknown, cfg: LinearLensConfig): string | undefine
  *
  * @param arg    The loosely-typed command argument.
  * @param client The Linear API client (degrades gracefully).
- * @param cfg    The current resolved configuration (team keys / slug).
+ * @param cfg    The current resolved configuration (markers).
+ * @param teamKeys The effective team-key allowlist (auth-aware detection).
+ * @param slug   The effective workspace slug (configured or detected).
  */
 async function resolveOpenInTarget(
   arg: unknown,
   client: LinearClient,
   cfg: LinearLensConfig,
+  teamKeys: string[] | undefined,
+  slug: string,
 ): Promise<{ id: string; url?: string } | undefined> {
-  const id = resolveTicketId(arg, cfg);
+  const id = resolveTicketId(arg, cfg, teamKeys);
   if (!id) {
     return undefined;
   }
-  const parsed = parseIssueId(id, { teamKeys: cfg.teamKeys });
+  const parsed = parseIssueId(id, { teamKeys });
   let url: string | undefined;
   if (parsed) {
     try {
@@ -983,8 +1126,8 @@ async function resolveOpenInTarget(
     } catch {
       // Fall through to the slug-derived URL.
     }
-    if (!url && cfg.workspaceSlug) {
-      url = issueUrl(parsed, cfg.workspaceSlug);
+    if (!url && slug) {
+      url = issueUrl(parsed, slug);
     }
   }
   return { id, url };
@@ -996,15 +1139,15 @@ async function resolveOpenInTarget(
  * client cannot resolve the issue. Never throws.
  *
  * @param client The Linear API client (degrades gracefully).
- * @param getCfg Accessor for the current configuration (team-key parsing).
+ * @param getTeamKeys Accessor for the effective team-key allowlist.
  * @param id     The normalized issue id, e.g. "ENG-123".
  */
 async function fetchTicketMetadata(
   client: { fetchTicketDetail(id: IssueId): Promise<TicketDetail | null> },
-  getCfg: () => LinearLensConfig,
+  getTeamKeys: () => string[] | undefined,
   id: string,
 ): Promise<IssueMetadata | null> {
-  const parsed = parseIssueId(id, { teamKeys: getCfg().teamKeys });
+  const parsed = parseIssueId(id, { teamKeys: getTeamKeys() });
   if (!parsed) {
     return null;
   }
@@ -1073,9 +1216,13 @@ function ticketErrorMessage(
  * Recompute the `refUnderCursor` / `hasRefs` context keys for the active editor.
  * Sets both to `false` when there is no editor or no reference. Never throws.
  *
- * @param cfg The current resolved configuration (for team keys / markers).
+ * @param cfg The current resolved configuration (for markers).
+ * @param detection The auth-aware detection service (effective team keys).
  */
-function computeSelectionContext(cfg: LinearLensConfig): void {
+function computeSelectionContext(
+  cfg: LinearLensConfig,
+  detection: DetectionService,
+): void {
   let hasRefs = false;
   let refUnderCursor = false;
   try {
@@ -1083,7 +1230,7 @@ function computeSelectionContext(cfg: LinearLensConfig): void {
     if (editor) {
       const document = editor.document;
       const refs = scanText(document.getText(), {
-        teamKeys: cfg.teamKeys,
+        teamKeys: detection.effectiveTeamKeys(),
         markers: cfg.markers,
       });
       hasRefs = refs.length > 0;

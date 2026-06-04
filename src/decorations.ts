@@ -28,15 +28,29 @@ export class IssueDecorator {
   private readonly _getCfg: () => LinearLensConfig;
 
   /**
+   * Live accessor for the effective team-key allowlist (auth-aware detection).
+   * Returns `undefined` for zero-config "match any" so it maps straight onto
+   * {@link scanText}'s `teamKeys` option.
+   */
+  private readonly _getTeamKeys: () => string[] | undefined;
+
+  /**
    * Create an `IssueDecorator`.
    *
    * @param getCfg A function that returns the current resolved configuration.
    *               Called on every `apply` / `applyToVisible` invocation so
    *               the decorator reacts to setting changes without being
    *               recreated.
+   * @param getTeamKeys Accessor for the effective team-key allowlist (from the
+   *               auth-aware {@link DetectionService}). Defaults to `() =>
+   *               undefined` (zero-config "match any"), preserving back-compat.
    */
-  constructor(getCfg: () => LinearLensConfig) {
+  constructor(
+    getCfg: () => LinearLensConfig,
+    getTeamKeys: () => string[] | undefined = () => undefined,
+  ) {
     this._getCfg = getCfg;
+    this._getTeamKeys = getTeamKeys;
 
     // One decoration type for the extension's lifetime.  Dotted underline in
     // the editor's link colour keeps the visual weight low while still making
@@ -85,7 +99,7 @@ export class IssueDecorator {
 
     const text = target.document.getText();
     const refs = scanText(text, {
-      teamKeys: cfg.teamKeys,
+      teamKeys: this._getTeamKeys(),
       markers: cfg.markers,
     });
 

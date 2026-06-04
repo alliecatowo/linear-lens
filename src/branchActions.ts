@@ -99,6 +99,16 @@ export interface AgentBridge {
 export interface BranchActionDeps {
   /** Returns the current, validated extension configuration. */
   getCfg: () => LinearLensConfig;
+  /**
+   * Returns the effective team-key allowlist (auth-aware detection); `undefined`
+   * for zero-config "match any". Optional; defaults to the configured `teamKeys`.
+   */
+  getTeamKeys?: () => string[] | undefined;
+  /**
+   * Returns the effective workspace slug (configured or detected). Optional;
+   * defaults to the configured `workspaceSlug`.
+   */
+  getSlug?: () => string;
   /** Linear API client (degrades gracefully; used to resolve URLs/branches). */
   client: LinearClient;
   /** The coding-agent bridge (built via {@link createAgentBridge}). */
@@ -692,8 +702,8 @@ async function resolveIssueUrl(
   if (args.url) {
     return args.url;
   }
-  const cfg = deps.getCfg();
-  const parsed = parseIssueId(args.id, { teamKeys: cfg.teamKeys });
+  const teamKeys = deps.getTeamKeys ? deps.getTeamKeys() : deps.getCfg().teamKeys;
+  const parsed = parseIssueId(args.id, { teamKeys });
 
   // Try live metadata first (authoritative canonical URL).
   if (parsed) {
@@ -705,8 +715,9 @@ async function resolveIssueUrl(
     } catch {
       // Fall through to slug-derived URL.
     }
-    if (cfg.workspaceSlug) {
-      return issueUrl(parsed, cfg.workspaceSlug);
+    const slug = deps.getSlug ? deps.getSlug() : deps.getCfg().workspaceSlug;
+    if (slug) {
+      return issueUrl(parsed, slug);
     }
   }
   return undefined;

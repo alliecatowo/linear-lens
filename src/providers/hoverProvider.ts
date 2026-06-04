@@ -64,12 +64,32 @@ export class IssueHoverProvider implements vscode.HoverProvider {
   private readonly client: LinearClient;
 
   /**
+   * Live accessor for the effective team-key allowlist (auth-aware detection).
+   * Returns `undefined` for zero-config "match any".
+   */
+  private readonly getTeamKeys: () => string[] | undefined;
+
+  /** Live accessor for the effective workspace slug (configured or detected). */
+  private readonly getSlug: () => string;
+
+  /**
    * @param getCfg Accessor for the current, validated extension configuration.
    * @param client Linear API client used to enrich hovers; degrades gracefully.
+   * @param getTeamKeys Accessor for the effective team-key allowlist (from the
+   *   auth-aware detection service). Defaults to `() => undefined` (match any).
+   * @param getSlug Accessor for the effective workspace slug (configured or
+   *   detected). Defaults to reading `cfg.workspaceSlug`, preserving back-compat.
    */
-  constructor(getCfg: () => LinearLensConfig, client: LinearClient) {
+  constructor(
+    getCfg: () => LinearLensConfig,
+    client: LinearClient,
+    getTeamKeys: () => string[] | undefined = () => undefined,
+    getSlug?: () => string,
+  ) {
     this.getCfg = getCfg;
     this.client = client;
+    this.getTeamKeys = getTeamKeys;
+    this.getSlug = getSlug ?? (() => getCfg().workspaceSlug);
   }
 
   /**
@@ -90,7 +110,7 @@ export class IssueHoverProvider implements vscode.HoverProvider {
 
     const offset = document.offsetAt(position);
     const refs = scanText(document.getText(), {
-      teamKeys: cfg.teamKeys,
+      teamKeys: this.getTeamKeys(),
       markers: cfg.markers,
     });
     const ref = refs.find((r) => offset >= r.start && offset < r.end);
@@ -107,6 +127,8 @@ export class IssueHoverProvider implements vscode.HoverProvider {
       document.positionAt(ref.end),
     );
 
+    const slug = this.getSlug();
+
     let markdown: vscode.MarkdownString | undefined;
     if (this.client.hasAuth()) {
       const metadata = await this.client.fetchIssue(ref.issue);
@@ -115,12 +137,12 @@ export class IssueHoverProvider implements vscode.HoverProvider {
         return undefined;
       }
       if (metadata) {
-        markdown = this.buildRichHover(ref, metadata, cfg);
+        markdown = this.buildRichHover(ref, metadata, cfg, slug);
       }
     }
 
     if (!markdown) {
-      markdown = this.buildBasicHover(ref, cfg);
+      markdown = this.buildBasicHover(ref, slug);
     }
 
     return new vscode.Hover(markdown, range);
@@ -128,12 +150,18 @@ export class IssueHoverProvider implements vscode.HoverProvider {
 
   /**
    * Build the always-available basic hover: a linked id header (or a configure
-   * prompt when no workspace slug is set). Used when unauthenticated or when no
-   * live metadata could be fetched.
+   * prompt when no workspace slug is available). Used when unauthenticated or
+   * when no live metadata could be fetched. The "no workspace slug" nag is
+   * dropped whenever a slug is available (configured OR detected from the
+   * signed-in workspace).
+   *
+   * @param ref The recognized issue reference under the cursor.
+   * @param slug The effective workspace slug (configured or detected); `""` when
+   *   neither is available.
    */
   private buildBasicHover(
     ref: IssueRef,
-    cfg: LinearLensConfig,
+    slug: string,
   ): vscode.MarkdownString {
     const md = newTrustedMarkdown();
     const id = ref.issue.normalized;
@@ -142,8 +170,8 @@ export class IssueHoverProvider implements vscode.HoverProvider {
     if (ref.kind === "url" && ref.url) {
       md.appendMarkdown(`[**${escapeMd(id)}**](${ref.url})\n\n`);
       md.appendMarkdown(actionRow);
-    } else if (cfg.workspaceSlug) {
-      const url = issueUrl(ref.issue, cfg.workspaceSlug);
+    } else if (slug) {
+      const url = issueUrl(ref.issue, slug);
       md.appendMarkdown(`[**${escapeMd(id)}**](${url})\n\n`);
       md.appendMarkdown(actionRow);
     } else {
@@ -167,6 +195,7 @@ export class IssueHoverProvider implements vscode.HoverProvider {
     ref: IssueRef,
     meta: IssueMetadata,
     cfg: LinearLensConfig,
+    slug: string,
   ): vscode.MarkdownString {
     const md = newTrustedMarkdown();
     // Avatar / label images load via the markdown image path; HTML stays off to
@@ -174,7 +203,7 @@ export class IssueHoverProvider implements vscode.HoverProvider {
     md.supportHtml = false;
 
     const id = meta.id || ref.issue.normalized;
-    const url = meta.url || (ref.url ?? issueUrl(ref.issue, cfg.workspaceSlug));
+    const url = meta.url || (ref.url ?? (slug ? issueUrl(ref.issue, slug) : ""));
 
     // 1. Title row: linked id em-dash title.
     const titleSuffix = meta.title ? ` — ${escapeMd(meta.title)}` : "";

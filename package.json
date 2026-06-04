@@ -654,6 +654,11 @@
           "minimum": 0,
           "description": "How long (in seconds) to cache fetched issue metadata before refetching."
         },
+        "linearLens.cache.persist": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Persist fetched issue metadata to this workspace's storage so hovers, pills, and the rail stay instant across editor reloads (stale entries are refreshed in the background). Turn off to keep the cache in memory only."
+        },
         "linearLens.inlineStatus.enable": {
           "type": "boolean",
           "default": true,
@@ -727,6 +732,11 @@
           "type": "boolean",
           "default": true,
           "markdownDescription": "When `#linearLens.teams.show#` is empty, show only teams you are a member of (vs. every team in the workspace)."
+        },
+        "linearLens.teams.autoDetect": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Automatically detect the signed-in workspace's real team keys and slug (`organization.urlKey`) from Linear and use them to recognize references — so only real issue ids (e.g. `ENG-123`) are highlighted/hovered/linked, and `#linearLens.workspaceSlug#` is no longer required to open issues. An explicit `#linearLens.teamKeys#` / `#linearLens.workspaceSlug#` always overrides detection. Turn off to rely solely on the configured values."
         },
         "linearLens.board.enable": {
           "type": "boolean",

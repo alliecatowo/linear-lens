@@ -24,6 +24,17 @@ import { API_KEY_SECRET } from "./linearClient";
 export interface CommandDeps {
   /** Returns the current, validated extension configuration. */
   getCfg: () => LinearLensConfig;
+  /**
+   * Returns the effective team-key allowlist (auth-aware detection). Returns
+   * `undefined` for zero-config "match any". Optional for back-compat; defaults
+   * to the configured `teamKeys`.
+   */
+  getTeamKeys?: () => string[] | undefined;
+  /**
+   * Returns the effective workspace slug (configured or detected). Optional for
+   * back-compat; defaults to the configured `workspaceSlug`.
+   */
+  getSlug?: () => string;
   /** Optional Linear API client (degrades gracefully). */
   client: LinearClient;
   /** Branch status bar, providing the current branch's issue id. */
@@ -34,6 +45,13 @@ export interface CommandDeps {
   refreshConfig: () => void;
   /** Re-apply decorations / refresh UI after an auth or cache change. */
   refreshUi: () => void;
+  /**
+   * Optional hook invoked after an auth change driven by these commands (API key
+   * set/clear, cache refresh) so the host can re-run auth-aware workspace
+   * detection. Personal-API-key set/clear fires no session event, so detection
+   * would otherwise stay stale until the next reload.
+   */
+  onAuthChanged?: () => void;
   /** SecretStorage for API key commands. */
   secrets: vscode.SecretStorage;
   /** The Activity Bar tree views, for refresh / reveal commands. */
@@ -95,9 +113,10 @@ function refUnderCursor(
   document: vscode.TextDocument,
   offset: number,
   cfg: LinearLensConfig,
+  teamKeys: string[] | undefined,
 ): IssueRef | null {
   const refs = scanText(document.getText(), {
-    teamKeys: cfg.teamKeys,
+    teamKeys,
     markers: cfg.markers,
   });
   for (const ref of refs) {
@@ -112,11 +131,14 @@ function refUnderCursor(
  * Open the configured workspace's issue URL externally, guarding against an
  * unconfigured workspace slug by offering to run the configure command.
  */
-async function openIssueUrl(issue: ReturnType<typeof parseIssueId>, cfg: LinearLensConfig): Promise<void> {
+async function openIssueUrl(
+  issue: ReturnType<typeof parseIssueId>,
+  slug: string,
+): Promise<void> {
   if (!issue) {
     return;
   }
-  if (!cfg.workspaceSlug) {
+  if (!slug) {
     const choice = await vscode.window.showWarningMessage(
       "Linear Lens: no workspace slug configured, so the issue URL is incomplete.",
       "Configure Workspace Slug",
@@ -126,7 +148,7 @@ async function openIssueUrl(issue: ReturnType<typeof parseIssueId>, cfg: LinearL
     }
     return;
   }
-  const url = issueUrl(issue, cfg.workspaceSlug);
+  const url = issueUrl(issue, slug);
   await vscode.env.openExternal(vscode.Uri.parse(url));
 }
 
@@ -136,6 +158,11 @@ async function openIssueUrl(issue: ReturnType<typeof parseIssueId>, cfg: LinearL
  */
 export function registerCommands(context: vscode.ExtensionContext, deps: CommandDeps): void {
   const { getCfg, client, branch, diagnostics, refreshConfig, refreshUi, secrets, views } = deps;
+  const onAuthChanged = deps.onAuthChanged ?? ((): void => {});
+  // Auth-aware detection accessors; fall back to the configured values so the
+  // commands keep working when constructed without a detection service.
+  const getTeamKeys = deps.getTeamKeys ?? (() => getCfg().teamKeys);
+  const getSlug = deps.getSlug ?? (() => getCfg().workspaceSlug);
 
   /** Refresh all three Activity Bar tree views. */
   const refreshViewsAll = (): void => {
@@ -195,9 +222,9 @@ export function registerCommands(context: vscode.ExtensionContext, deps: Command
         await vscode.env.openExternal(vscode.Uri.parse(fromArg.url));
         return;
       }
-      const parsed = parseIssueId(fromArg.id, { teamKeys: cfg.teamKeys });
+      const parsed = parseIssueId(fromArg.id, { teamKeys: getTeamKeys() });
       if (parsed) {
-        await openIssueUrl(parsed, cfg);
+        await openIssueUrl(parsed, getSlug());
         return;
       }
     }
@@ -207,9 +234,9 @@ export function registerCommands(context: vscode.ExtensionContext, deps: Command
     const editor = vscode.window.activeTextEditor;
     if (editor) {
       const offset = editor.document.offsetAt(editor.selection.active);
-      const ref = refUnderCursor(editor.document, offset, cfg);
+      const ref = refUnderCursor(editor.document, offset, cfg, getTeamKeys());
       if (ref) {
-        await openIssueUrl(ref.issue, cfg);
+        await openIssueUrl(ref.issue, getSlug());
         return;
       }
     }
@@ -223,12 +250,12 @@ export function registerCommands(context: vscode.ExtensionContext, deps: Command
     if (input === undefined) {
       return;
     }
-    const issue = parseIssueId(input, { teamKeys: cfg.teamKeys });
+    const issue = parseIssueId(input, { teamKeys: getTeamKeys() });
     if (!issue) {
       void vscode.window.showWarningMessage(`Linear Lens: "${input.trim()}" is not a valid Linear issue id.`);
       return;
     }
-    await openIssueUrl(issue, cfg);
+    await openIssueUrl(issue, getSlug());
   });
 
   const copyIssueLink = vscode.commands.registerCommand("linearLens.copyIssueLink", async (arg?: unknown) => {
@@ -249,7 +276,7 @@ export function registerCommands(context: vscode.ExtensionContext, deps: Command
       const editor = vscode.window.activeTextEditor;
       if (editor) {
         const offset = editor.document.offsetAt(editor.selection.active);
-        cursorId = refUnderCursor(editor.document, offset, cfg)?.issue.normalized;
+        cursorId = refUnderCursor(editor.document, offset, cfg, getTeamKeys())?.issue.normalized;
       }
     }
 
@@ -262,12 +289,13 @@ export function registerCommands(context: vscode.ExtensionContext, deps: Command
     if (input === undefined) {
       return;
     }
-    const issue = parseIssueId(input, { teamKeys: cfg.teamKeys });
+    const issue = parseIssueId(input, { teamKeys: getTeamKeys() });
     if (!issue) {
       void vscode.window.showWarningMessage(`Linear Lens: "${input.trim()}" is not a valid Linear issue id.`);
       return;
     }
-    if (!cfg.workspaceSlug) {
+    const slug = getSlug();
+    if (!slug) {
       const choice = await vscode.window.showWarningMessage(
         "Linear Lens: no workspace slug configured, so the issue URL is incomplete.",
         "Configure Workspace Slug",
@@ -277,7 +305,7 @@ export function registerCommands(context: vscode.ExtensionContext, deps: Command
       }
       return;
     }
-    const url = issueUrl(issue, cfg.workspaceSlug);
+    const url = issueUrl(issue, slug);
     await vscode.env.clipboard.writeText(url);
     void vscode.window.showInformationMessage(`Linear Lens: copied link to ${issue.normalized}.`);
   });
@@ -289,6 +317,7 @@ export function registerCommands(context: vscode.ExtensionContext, deps: Command
     await client.refreshAuth();
     refreshUi();
     refreshViewsAll();
+    onAuthChanged();
     void vscode.window.showInformationMessage("Linear Lens: issue cache refreshed.");
   });
 
@@ -298,7 +327,7 @@ export function registerCommands(context: vscode.ExtensionContext, deps: Command
       void vscode.window.showWarningMessage("Linear Lens: no Linear issue in the current branch.");
       return;
     }
-    await openIssueUrl(id, getCfg());
+    await openIssueUrl(id, getSlug());
   });
 
   const signIn = vscode.commands.registerCommand("linearLens.signIn", async () => {
@@ -398,6 +427,7 @@ export function registerCommands(context: vscode.ExtensionContext, deps: Command
     setAuthedContext();
     refreshUi();
     refreshViewsAll();
+    onAuthChanged();
     void vscode.window.showInformationMessage("Linear Lens: Linear API key saved.");
 
     const cfg = getCfg();
@@ -422,6 +452,7 @@ export function registerCommands(context: vscode.ExtensionContext, deps: Command
     setAuthedContext();
     refreshUi();
     refreshViewsAll();
+    onAuthChanged();
     void vscode.window.showInformationMessage("Linear Lens: Linear API key cleared.");
   });
 
@@ -429,7 +460,7 @@ export function registerCommands(context: vscode.ExtensionContext, deps: Command
 
   /** Open the fuzzy "Go to Linear Issue" quick-pick (search + recent + open by id). */
   const searchIssues = vscode.commands.registerCommand("linearLens.searchIssues", async () => {
-    await goToIssue(getCfg, client);
+    await goToIssue(getCfg, client, getTeamKeys, getSlug);
   });
 
   /** Manually refresh all three Activity Bar tree views. */
@@ -478,7 +509,7 @@ export function registerCommands(context: vscode.ExtensionContext, deps: Command
     }
     const cfg = getCfg();
     const document = editor.document;
-    const refs = scanText(document.getText(), { teamKeys: cfg.teamKeys, markers: cfg.markers });
+    const refs = scanText(document.getText(), { teamKeys: getTeamKeys(), markers: cfg.markers });
     if (refs.length === 0) {
       void vscode.window.showInformationMessage("Linear Lens: no Linear references in this file.");
       return;
@@ -517,7 +548,7 @@ export function registerCommands(context: vscode.ExtensionContext, deps: Command
       const editor = vscode.window.activeTextEditor;
       if (editor) {
         const offset = editor.document.offsetAt(editor.selection.active);
-        const ref = refUnderCursor(editor.document, offset, cfg);
+        const ref = refUnderCursor(editor.document, offset, cfg, getTeamKeys());
         id = ref?.issue.normalized;
       }
     }
@@ -528,7 +559,7 @@ export function registerCommands(context: vscode.ExtensionContext, deps: Command
     }
 
     // Normalize loose ids (e.g. lowercase from a tree label) when possible.
-    const parsed = parseIssueId(id, { teamKeys: cfg.teamKeys });
+    const parsed = parseIssueId(id, { teamKeys: getTeamKeys() });
     const normalized = parsed?.normalized ?? id;
     await vscode.env.clipboard.writeText(normalized);
     void vscode.window.showInformationMessage(`Linear Lens: copied ${normalized}.`);
@@ -541,13 +572,13 @@ export function registerCommands(context: vscode.ExtensionContext, deps: Command
   const revealInLinearView = vscode.commands.registerCommand("linearLens.revealInLinearView", async (arg?: unknown) => {
     const cfg = getCfg();
     const fromArg = asIssueArg(arg);
-    let id: IssueId | null = fromArg ? parseIssueId(fromArg.id, { teamKeys: cfg.teamKeys }) : null;
+    let id: IssueId | null = fromArg ? parseIssueId(fromArg.id, { teamKeys: getTeamKeys() }) : null;
 
     if (!id) {
       const editor = vscode.window.activeTextEditor;
       if (editor) {
         const offset = editor.document.offsetAt(editor.selection.active);
-        const ref = refUnderCursor(editor.document, offset, cfg);
+        const ref = refUnderCursor(editor.document, offset, cfg, getTeamKeys());
         id = ref?.issue ?? null;
       }
     }

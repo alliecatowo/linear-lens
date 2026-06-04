@@ -24,6 +24,12 @@ const HEAD_REF_PREFIX = "ref: refs/heads/";
  */
 export class BranchStatusBar {
   private readonly getCfg: () => LinearLensConfig;
+  /**
+   * Live accessor for the effective team-key allowlist (auth-aware detection) so
+   * a branch like `eng-123-foo` only resolves when `ENG` is a recognized team.
+   * Returns `undefined` for zero-config "match any".
+   */
+  private readonly getTeamKeys: () => string[] | undefined;
   private readonly item: vscode.StatusBarItem;
   private readonly disposables: vscode.Disposable[] = [];
   private watcher: vscode.FileSystemWatcher | undefined;
@@ -31,9 +37,16 @@ export class BranchStatusBar {
 
   /**
    * @param getCfg Accessor for the current resolved configuration.
+   * @param getTeamKeys Accessor for the effective team-key allowlist (from the
+   *   auth-aware {@link DetectionService}). Defaults to `() => undefined`
+   *   (zero-config "match any"), preserving back-compat.
    */
-  constructor(getCfg: () => LinearLensConfig) {
+  constructor(
+    getCfg: () => LinearLensConfig,
+    getTeamKeys: () => string[] | undefined = () => undefined,
+  ) {
     this.getCfg = getCfg;
+    this.getTeamKeys = getTeamKeys;
     this.item = vscode.window.createStatusBarItem(
       vscode.StatusBarAlignment.Left,
       STATUS_BAR_PRIORITY,
@@ -95,7 +108,7 @@ export class BranchStatusBar {
     const id =
       branch === null
         ? null
-        : issueIdFromBranch(branch, { teamKeys: this.getCfg().teamKeys });
+        : issueIdFromBranch(branch, { teamKeys: this.getTeamKeys() });
     this.currentId = id;
     this.render(id);
   }

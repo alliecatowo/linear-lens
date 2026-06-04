@@ -6,6 +6,13 @@
  * remain unit-testable in plain Node via vitest.
  */
 
+// Re-export the auth-aware detection contract. The canonical definition lives in
+// the pure `src/linear/workspaceQuery.ts` mapper; re-exporting here keeps it
+// available from the shared contracts module without duplicating the shape.
+// (Both modules are `vscode`-free, so this import never taints `types.ts`.)
+import type { WorkspaceInfo } from "./linear/workspaceQuery";
+export type { WorkspaceInfo };
+
 // ---------------------------------------------------------------------------
 // Issue identity
 // ---------------------------------------------------------------------------
@@ -122,6 +129,8 @@ export interface LinearLensConfig {
   enableApi: boolean;
   /** `linearLens.cache.ttlSeconds` — metadata cache TTL. */
   cacheTtlSeconds: number;
+  /** `linearLens.cache.persist` — persist the metadata cache across editor reloads (workspaceState). */
+  cachePersist: boolean;
   /** `linearLens.inlineStatus.enable` — toggle the inline state dot/pill after each ref. */
   enableInlineStatus: boolean;
   /** `linearLens.inlineStatus.style` — inline status indicator style ("dot" | "pill"). */
@@ -144,6 +153,12 @@ export interface LinearLensConfig {
   teamsShow: string[];
   /** `linearLens.teams.viewerOnly` — when `teams.show` is empty, show only the viewer's teams. */
   teamsViewerOnly: boolean;
+  /**
+   * `linearLens.teams.autoDetect` — fetch the signed-in workspace's real team
+   * keys + slug from Linear and use them as the recognition allowlist when
+   * `teamKeys` / `workspaceSlug` are not explicitly configured.
+   */
+  teamsAutoDetect: boolean;
   /** `linearLens.board.enable` — enable the team Board webview (drag-to-status). */
   boardEnable: boolean;
   /** `linearLens.view.defaultGroupBy` — default grouping for the issue tree views. */
@@ -611,6 +626,39 @@ export interface IssueEditContext {
 }
 
 /**
+ * A persisted metadata cache entry: the resolved {@link IssueMetadata} (or `null`
+ * for a cached negative lookup) plus an absolute expiry timestamp.
+ *
+ * Under stale-while-revalidate (SWR) an expired entry is NOT discarded — its
+ * `value` is still served instantly while a background refresh repopulates it.
+ */
+export interface CachedEntry {
+  /** Resolved metadata, or `null` for a cached negative lookup. */
+  value: IssueMetadata | null;
+  /** Epoch ms (`Date.now()`) after which the entry is STALE (still served via SWR). */
+  expiresAt: number;
+}
+
+/**
+ * Minimal Memento-like persistence the {@link LinearClient} uses so the metadata
+ * cache survives editor reloads. The host injects an adapter over
+ * `context.workspaceState`; pure key/value, JSON-safe values only. The client
+ * owns serialization (it stores plain {@link CachedEntry} objects).
+ *
+ * `set` may be sync or async; the client fires writes without awaiting on the hot
+ * path and never lets a rejection escape. `keys()` is OPTIONAL so tests can inject
+ * a store without it (rehydrate + bulk-clear simply no-op when it is absent).
+ */
+export interface MetadataStore {
+  /** Read a previously-persisted value (or `undefined` when absent). */
+  get<T>(key: string): T | undefined;
+  /** Persist a value. May resolve asynchronously; the client never awaits it. */
+  set(key: string, value: unknown): Thenable<void> | void;
+  /** List all stored keys (used for rehydrate + namespaced bulk-clear). */
+  keys?(): readonly string[];
+}
+
+/**
  * Optional Linear API client. ALL methods degrade gracefully and NEVER throw:
  * when auth/API is unavailable, `fetchIssue` resolves to `null` so callers fall
  * back to basic link/hover behavior.
@@ -622,11 +670,30 @@ export interface LinearClient {
    */
   fetchIssue(id: IssueId): Promise<IssueMetadata | null>;
   /**
+   * Fetch metadata for MANY ids in as few GraphQL requests as possible. Serves
+   * fresh-cached ids without network, dedupes against concurrent in-flight
+   * fetches of the same id, batches the remainder into bounded single requests
+   * (`issues(filter:{ or:[…] })`), and caches every result (negative lookups for
+   * ids absent from the response). Resolves to a `Map` keyed by `id.normalized`;
+   * unresolved ids are simply absent. NEVER throws — on any failure it resolves
+   * with whatever it could gather (possibly an empty map).
+   */
+  fetchIssues(ids: IssueId[]): Promise<Map<string, IssueMetadata>>;
+  /**
+   * Warm the cache for every distinct id (debounced by the CALLER per document).
+   * Only ids that are missing or stale are fetched; fresh ids are skipped. Bounded
+   * by batch chunking + in-flight dedupe so a huge file cannot storm the API. The
+   * returned `Promise` may be ignored (the warmed cache is the point). Never throws.
+   */
+  prefetch(ids: IssueId[]): Promise<void>;
+  /**
    * Synchronous, network-free peek at the lightweight cache populated by
-   * {@link LinearClient.fetchIssue}. Returns cached {@link IssueMetadata} when
-   * present and unexpired, else `null`. Used by the inline status pill, gutter,
-   * and tree to render immediately without awaiting (a `null` means "not cached
-   * yet" — callers queue a background `fetchIssue` and repaint when it resolves).
+   * {@link LinearClient.fetchIssue}/{@link LinearClient.fetchIssues}. Returns the
+   * cached {@link IssueMetadata} when present — INCLUDING a stale value, since
+   * stale-while-revalidate wants the last-known value painted instantly while a
+   * background refresh repopulates it — else `null`. Used by the inline status
+   * pill, rail, and tree to render immediately without awaiting (a `null` means
+   * "nothing cached yet" — callers queue a background fetch and repaint on resolve).
    */
   peekIssue(id: IssueId): IssueMetadata | null;
   /**
@@ -647,6 +714,14 @@ export interface LinearClient {
   listIssues(scope: IssueListScope, limit: number): Promise<IssueListItem[]>;
   /** Search issues by free text (Linear `searchIssues`). Empty array on any failure. */
   searchIssues(query: string, limit: number): Promise<IssueListItem[]>;
+  /**
+   * Fetch the signed-in workspace's slug (`organization.urlKey`) + visible team
+   * keys in ONE request, powering auth-aware detection. Resolves to `null` when
+   * the API is disabled, no auth is present, or any error occurs. The detected
+   * info is cached persistently by the host's `DetectionService` (NOT the
+   * metadata cache). Never throws.
+   */
+  fetchWorkspaceInfo(): Promise<WorkspaceInfo | null>;
 
   // --- Pickers (read; return [] / null on any failure; NEVER throw) ---
 

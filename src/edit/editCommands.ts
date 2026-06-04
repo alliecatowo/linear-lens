@@ -61,6 +61,11 @@ import {
 export interface EditCommandDeps {
   /** Returns the current, validated extension configuration. */
   readonly getCfg: () => LinearLensConfig;
+  /**
+   * Returns the effective team-key allowlist (auth-aware detection); `undefined`
+   * for zero-config "match any". Optional; defaults to the configured `teamKeys`.
+   */
+  readonly getTeamKeys?: () => string[] | undefined;
   /** Linear API client (pickers + mutations; degrades gracefully, never throws). */
   readonly client: LinearClient;
   /** Write-auth dependencies (SecretStorage) for the write-auth gate. */
@@ -161,10 +166,15 @@ function showWriteSuccess(message: string): void {
  * can be resolved. Never throws.
  *
  * @param arg - The loosely-typed command argument.
- * @param cfg - The current resolved configuration (team-key / marker parsing).
+ * @param cfg - The current resolved configuration (marker parsing).
+ * @param teamKeys - The effective team-key allowlist (auth-aware detection).
  * @returns The normalized id, or `undefined`.
  */
-function resolveIssueId(arg: unknown, cfg: LinearLensConfig): string | undefined {
+function resolveIssueId(
+  arg: unknown,
+  cfg: LinearLensConfig,
+  teamKeys: string[] | undefined,
+): string | undefined {
   // 1. Explicit string / `{ id }` argument.
   let raw: string | undefined;
   if (typeof arg === "string") {
@@ -174,7 +184,7 @@ function resolveIssueId(arg: unknown, cfg: LinearLensConfig): string | undefined
     raw = typeof candidate === "string" ? candidate.trim() : undefined;
   }
   if (raw) {
-    const parsed = parseIssueId(raw, { teamKeys: cfg.teamKeys });
+    const parsed = parseIssueId(raw, { teamKeys });
     return parsed?.normalized ?? raw;
   }
 
@@ -186,7 +196,7 @@ function resolveIssueId(arg: unknown, cfg: LinearLensConfig): string | undefined
     }
     const document = editor.document;
     const refs = scanText(document.getText(), {
-      teamKeys: cfg.teamKeys,
+      teamKeys,
       markers: cfg.markers,
     });
     const offset = document.offsetAt(editor.selection.active);
@@ -205,13 +215,15 @@ function resolveIssueId(arg: unknown, cfg: LinearLensConfig): string | undefined
  *
  * @param arg - The loosely-typed command argument.
  * @param cfg - The current resolved configuration.
+ * @param teamKeys - The effective team-key allowlist (auth-aware detection).
  * @returns A parsed {@link IssueId}, or `undefined`.
  */
 async function resolveIssueIdOrPrompt(
   arg: unknown,
   cfg: LinearLensConfig,
+  teamKeys: string[] | undefined,
 ): Promise<IssueId | undefined> {
-  let id = resolveIssueId(arg, cfg);
+  let id = resolveIssueId(arg, cfg, teamKeys);
   if (!id) {
     const input = await vscode.window.showInputBox({
       title: "Linear Lens: Edit Issue",
@@ -224,7 +236,7 @@ async function resolveIssueIdOrPrompt(
     }
     id = input.trim();
   }
-  const parsed = parseIssueId(id, { teamKeys: cfg.teamKeys });
+  const parsed = parseIssueId(id, { teamKeys });
   if (!parsed) {
     void vscode.window.showWarningMessage(
       `Linear Lens: "${id}" is not a valid Linear issue id.`,
@@ -261,9 +273,10 @@ async function runPreamble(
   deps: EditCommandDeps,
 ): Promise<EditTarget | undefined> {
   const cfg = deps.getCfg();
+  const teamKeys = deps.getTeamKeys ? deps.getTeamKeys() : cfg.teamKeys;
 
   // 1. Resolve the target id.
-  const id = await resolveIssueIdOrPrompt(arg, cfg);
+  const id = await resolveIssueIdOrPrompt(arg, cfg, teamKeys);
   if (!id) {
     return undefined;
   }

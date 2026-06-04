@@ -168,6 +168,7 @@ export function getConfig(): LinearLensConfig {
       cfg.get("cache.ttlSeconds"),
       DEFAULT_CACHE_TTL_SECONDS,
     ),
+    cachePersist: toBooleanOr(cfg.get("cache.persist"), true),
     enableInlineStatus: toBooleanOr(cfg.get("inlineStatus.enable"), true),
     inlineStatusStyle: normalizeInlineStyle(cfg.get("inlineStatus.style")),
     enableViews: toBooleanOr(cfg.get("views.enable"), true),
@@ -184,6 +185,7 @@ export function getConfig(): LinearLensConfig {
     // uppercases, de-dups). Empty ⇒ show all teams (or just the viewer's).
     teamsShow: normalizeKeyList(cfg.get("teams.show")),
     teamsViewerOnly: toBooleanOr(cfg.get("teams.viewerOnly"), true),
+    teamsAutoDetect: toBooleanOr(cfg.get("teams.autoDetect"), true),
     boardEnable: toBooleanOr(cfg.get("board.enable"), true),
     viewDefaultGroupBy: normalizeGroupBy(cfg.get("view.defaultGroupBy")),
     viewDefaultSortBy: normalizeSortBy(cfg.get("view.defaultSortBy")),

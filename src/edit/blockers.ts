@@ -32,6 +32,11 @@ import { blockerRows, addBlockerInput } from "./blockerFlow";
 export interface BlockerCommandDeps {
   /** Returns the current, validated extension configuration. */
   readonly getCfg: () => LinearLensConfig;
+  /**
+   * Returns the effective team-key allowlist (auth-aware detection); `undefined`
+   * for zero-config "match any". Optional; defaults to the configured `teamKeys`.
+   */
+  readonly getTeamKeys?: () => string[] | undefined;
   /** Linear API client — reads and writes; never throws. */
   readonly client: LinearClient;
   /** Write-auth deps (SecretStorage) for {@link ensureWriteAuth}. */
@@ -126,9 +131,11 @@ async function showWriteError(err: LinearWriteError): Promise<void> {
 async function resolveIssueId(
   arg: unknown,
   getCfg: () => LinearLensConfig,
+  getTeamKeys: () => string[] | undefined,
 ): Promise<IssueId | null> {
   try {
     const cfg = getCfg();
+    const teamKeys = getTeamKeys();
 
     // 1. Explicit argument from a tree node or another command.
     if (arg !== null && arg !== undefined) {
@@ -139,7 +146,7 @@ async function resolveIssueId(
         rawId = ((arg as { id: string }).id).trim();
       }
       if (rawId) {
-        const parsed = parseIssueId(rawId, { teamKeys: cfg.teamKeys });
+        const parsed = parseIssueId(rawId, { teamKeys });
         if (parsed) {
           return parsed;
         }
@@ -151,7 +158,7 @@ async function resolveIssueId(
     if (editor) {
       const offset = editor.document.offsetAt(editor.selection.active);
       const text = editor.document.getText();
-      const refs = scanText(text, { teamKeys: cfg.teamKeys, markers: cfg.markers });
+      const refs = scanText(text, { teamKeys, markers: cfg.markers });
       for (const ref of refs) {
         if (offset >= ref.start && offset <= ref.end) {
           return ref.issue;
@@ -169,7 +176,7 @@ async function resolveIssueId(
     if (input === undefined) {
       return null;
     }
-    const parsed = parseIssueId(input.trim(), { teamKeys: cfg.teamKeys });
+    const parsed = parseIssueId(input.trim(), { teamKeys });
     if (!parsed) {
       void vscode.window.showWarningMessage(
         `Linear Lens: "${input.trim()}" is not a valid Linear issue id.`,
@@ -194,11 +201,11 @@ async function resolveIssueId(
  */
 async function pickOtherIssue(
   client: LinearClient,
-  getCfg: () => LinearLensConfig,
+  getTeamKeys: () => string[] | undefined,
   title: string,
 ): Promise<{ uuid: string; id: IssueId } | null> {
   try {
-    const cfg = getCfg();
+    const teamKeys = getTeamKeys();
     const SEARCH_LIMIT = 25;
     const DEBOUNCE_MS = 250;
 
@@ -261,7 +268,7 @@ async function pickOtherIssue(
     }
 
     // Parse the chosen item's label (which is the normalized id).
-    const chosenId = parseIssueId(chosenLabel, { teamKeys: cfg.teamKeys });
+    const chosenId = parseIssueId(chosenLabel, { teamKeys });
     if (!chosenId) {
       void vscode.window.showWarningMessage(
         `Linear Lens: "${chosenLabel}" could not be parsed as a Linear issue id.`,
@@ -304,9 +311,10 @@ async function addBlockerHandler(
   try {
     const { getCfg, client, writeAuthDeps, invalidate, refreshUi, refreshViews, refreshDetail } =
       deps;
+    const getTeamKeys = deps.getTeamKeys ?? (() => getCfg().teamKeys);
 
     // 1. Resolve THIS issue id.
-    const thisId = await resolveIssueId(arg, getCfg);
+    const thisId = await resolveIssueId(arg, getCfg, getTeamKeys);
     if (!thisId) {
       return;
     }
@@ -332,7 +340,7 @@ async function addBlockerHandler(
         ? `Add issue that ${thisId.normalized} will BLOCK`
         : `Add issue that BLOCKS ${thisId.normalized}`;
 
-    const other = await pickOtherIssue(client, getCfg, addLabel);
+    const other = await pickOtherIssue(client, getTeamKeys, addLabel);
     if (!other) {
       // pickOtherIssue already showed a warning if something went wrong; if the
       // user simply cancelled, silently abort.
@@ -386,9 +394,10 @@ async function removeBlockerHandler(
   try {
     const { getCfg, client, writeAuthDeps, invalidate, refreshUi, refreshViews, refreshDetail } =
       deps;
+    const getTeamKeys = deps.getTeamKeys ?? (() => getCfg().teamKeys);
 
     // 1. Resolve THIS issue id.
-    const thisId = await resolveIssueId(arg, getCfg);
+    const thisId = await resolveIssueId(arg, getCfg, getTeamKeys);
     if (!thisId) {
       return;
     }
@@ -457,8 +466,7 @@ async function removeBlockerHandler(
       showSuccess(`Removed blocker relation from ${thisId.normalized}.`);
       invalidate(thisId);
       // Attempt to parse the related identifier so we can also invalidate it.
-      const cfg = getCfg();
-      const relatedId = parseIssueId(chosen.relatedIdentifier, { teamKeys: cfg.teamKeys });
+      const relatedId = parseIssueId(chosen.relatedIdentifier, { teamKeys: getTeamKeys() });
       if (relatedId) {
         invalidate(relatedId);
       }

@@ -36,15 +36,27 @@ export class DiagnosticsManager {
   private readonly getCfg: () => LinearLensConfig;
 
   /**
+   * Live accessor for the effective team-key allowlist (auth-aware detection) so
+   * non-team tokens (e.g. `XYZ-123` for an unknown team) never become Problems
+   * entries. Returns `undefined` for zero-config "match any".
+   */
+  private readonly getTeamKeys: () => string[] | undefined;
+
+  /**
    * @param collection The diagnostic collection owned by the extension.
    * @param getCfg Accessor returning the current resolved configuration.
+   * @param getTeamKeys Accessor for the effective team-key allowlist (from the
+   *   auth-aware {@link DetectionService}). Defaults to `() => undefined`
+   *   (zero-config "match any"), preserving back-compat.
    */
   public constructor(
     collection: vscode.DiagnosticCollection,
     getCfg: () => LinearLensConfig,
+    getTeamKeys: () => string[] | undefined = () => undefined,
   ) {
     this.collection = collection;
     this.getCfg = getCfg;
+    this.getTeamKeys = getTeamKeys;
   }
 
   /**
@@ -67,7 +79,7 @@ export class DiagnosticsManager {
     }
 
     const severity = toDiagnosticSeverity(cfg.diagnosticSeverity);
-    const refs = scanText(document.getText(), { teamKeys: cfg.teamKeys, markers: cfg.markers });
+    const refs = scanText(document.getText(), { teamKeys: this.getTeamKeys(), markers: cfg.markers });
     const diagnostics: vscode.Diagnostic[] = [];
 
     for (const ref of refs) {

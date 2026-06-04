@@ -104,6 +104,12 @@ export class InlineStatusDecorator {
   private readonly _client: PeekableClient;
 
   /**
+   * Live accessor for the effective team-key allowlist (auth-aware detection).
+   * Returns `undefined` for zero-config "match any".
+   */
+  private readonly _getTeamKeys: () => string[] | undefined;
+
+  /**
    * Lazily-built decoration types keyed by `style + ":" + colorHex + ":" + text`.
    * Insertion order is used as the LRU ordering (Map preserves it); re-touching a
    * key moves it to the end via delete+set.
@@ -139,10 +145,18 @@ export class InlineStatusDecorator {
    *               on every apply so the decorator reacts to setting changes
    *               without being recreated.
    * @param client The cache-backed Linear client used to resolve state colors.
+   * @param getTeamKeys Accessor for the effective team-key allowlist (from the
+   *               auth-aware {@link DetectionService}). Defaults to `() =>
+   *               undefined` (zero-config "match any"), preserving back-compat.
    */
-  constructor(getCfg: () => LinearLensConfig, client: LinearClient) {
+  constructor(
+    getCfg: () => LinearLensConfig,
+    client: LinearClient,
+    getTeamKeys: () => string[] | undefined = () => undefined,
+  ) {
     this._getCfg = getCfg;
     this._client = client as PeekableClient;
+    this._getTeamKeys = getTeamKeys;
   }
 
   /**
@@ -186,7 +200,7 @@ export class InlineStatusDecorator {
       }
 
       const refs = scanText(target.document.getText(), {
-        teamKeys: cfg.teamKeys,
+        teamKeys: this._getTeamKeys(),
         markers: cfg.markers,
       });
       if (refs.length === 0) {

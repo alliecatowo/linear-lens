@@ -54,6 +54,13 @@ export class FileIssuesProvider implements vscode.TreeDataProvider<LinearTreeNod
 
   private readonly getCfg: () => LinearLensConfig;
   private readonly client: LinearClient;
+  /**
+   * Live accessor for the effective team-key allowlist (auth-aware detection).
+   * Returns `undefined` for zero-config "match any".
+   */
+  private readonly getTeamKeys: () => string[] | undefined;
+  /** Live accessor for the effective workspace slug (configured or detected). */
+  private readonly getSlug: () => string;
   private debounceTimer: ReturnType<typeof setTimeout> | undefined;
   private disposed = false;
   /**
@@ -71,10 +78,21 @@ export class FileIssuesProvider implements vscode.TreeDataProvider<LinearTreeNod
   /**
    * @param getCfg Accessor for the current, validated extension configuration.
    * @param client Linear API client (used only for a non-blocking sync peek).
+   * @param getTeamKeys Accessor for the effective team-key allowlist (from the
+   *   auth-aware detection service). Defaults to `() => undefined` (match any).
+   * @param getSlug Accessor for the effective workspace slug (configured or
+   *   detected). Defaults to reading `cfg.workspaceSlug`, preserving back-compat.
    */
-  constructor(getCfg: () => LinearLensConfig, client: LinearClient) {
+  constructor(
+    getCfg: () => LinearLensConfig,
+    client: LinearClient,
+    getTeamKeys: () => string[] | undefined = () => undefined,
+    getSlug?: () => string,
+  ) {
     this.getCfg = getCfg;
     this.client = client;
+    this.getTeamKeys = getTeamKeys;
+    this.getSlug = getSlug ?? (() => getCfg().workspaceSlug);
     // Seed the fallback with whichever editor is active when we are constructed so
     // the very first `getChildren` call already has something to render.
     const current = vscode.window.activeTextEditor;
@@ -121,12 +139,13 @@ export class FileIssuesProvider implements vscode.TreeDataProvider<LinearTreeNod
 
       const document = editor.document;
       const text = document.getText();
-      const refs = scanText(text, { teamKeys: cfg.teamKeys, markers: cfg.markers });
+      const teamKeys = this.getTeamKeys();
+      const refs = scanText(text, { teamKeys, markers: cfg.markers });
       if (refs.length === 0) {
         return [
           message(
             "No Linear references in this file.",
-            cfg.workspaceSlug ? undefined : COMMAND_CONFIGURE_WORKSPACE,
+            this.getSlug() ? undefined : COMMAND_CONFIGURE_WORKSPACE,
           ),
         ];
       }
@@ -140,7 +159,7 @@ export class FileIssuesProvider implements vscode.TreeDataProvider<LinearTreeNod
 
       // Enrich with a sync cache peek when the client offers one. No awaits.
       for (const fileRef of nodes) {
-        const item = this.peek(fileRef.id, cfg.teamKeys);
+        const item = this.peek(fileRef.id, teamKeys);
         if (item) {
           fileRef.item = item;
         }
@@ -188,7 +207,7 @@ export class FileIssuesProvider implements vscode.TreeDataProvider<LinearTreeNod
    * `peekIssue`, normalizing it into an {@link IssueListItem}. Returns undefined
    * when the client has no peek, the cache misses, or anything goes wrong.
    */
-  private peek(id: string, teamKeys: string[]): IssueListItem | undefined {
+  private peek(id: string, teamKeys: string[] | undefined): IssueListItem | undefined {
     const peekable = this.client as unknown as PeekableClient;
     if (typeof peekable.peekIssue !== "function") {
       return undefined;

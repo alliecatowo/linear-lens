@@ -17,11 +17,30 @@ export class IssueLinkProvider implements vscode.DocumentLinkProvider {
   private readonly getCfg: () => LinearLensConfig;
 
   /**
+   * Live accessor for the effective team-key allowlist (auth-aware detection).
+   * Returns `undefined` for zero-config "match any".
+   */
+  private readonly getTeamKeys: () => string[] | undefined;
+
+  /** Live accessor for the effective workspace slug (configured or detected). */
+  private readonly getSlug: () => string;
+
+  /**
    * @param getCfg Accessor for the latest {@link LinearLensConfig}; read fresh
    * on each call so config changes take effect without re-registration.
+   * @param getTeamKeys Accessor for the effective team-key allowlist (from the
+   * auth-aware detection service). Defaults to `() => undefined` (match any).
+   * @param getSlug Accessor for the effective workspace slug (configured or
+   * detected). Defaults to reading `cfg.workspaceSlug`, preserving back-compat.
    */
-  constructor(getCfg: () => LinearLensConfig) {
+  constructor(
+    getCfg: () => LinearLensConfig,
+    getTeamKeys: () => string[] | undefined = () => undefined,
+    getSlug?: () => string,
+  ) {
     this.getCfg = getCfg;
+    this.getTeamKeys = getTeamKeys;
+    this.getSlug = getSlug ?? (() => getCfg().workspaceSlug);
   }
 
   /**
@@ -40,8 +59,9 @@ export class IssueLinkProvider implements vscode.DocumentLinkProvider {
     if (!cfg.enableLinks) {
       return [];
     }
-    const refs = scanText(document.getText(), { teamKeys: cfg.teamKeys, markers: cfg.markers });
+    const refs = scanText(document.getText(), { teamKeys: this.getTeamKeys(), markers: cfg.markers });
     const links: vscode.DocumentLink[] = [];
+    const slug = this.getSlug();
 
     for (const ref of refs) {
       if (token.isCancellationRequested) {
@@ -51,8 +71,8 @@ export class IssueLinkProvider implements vscode.DocumentLinkProvider {
       let target: string | undefined;
       if (ref.kind === "url") {
         target = ref.url;
-      } else if (cfg.workspaceSlug) {
-        target = issueUrl(ref.issue, cfg.workspaceSlug);
+      } else if (slug) {
+        target = issueUrl(ref.issue, slug);
       }
 
       // Skip refs with no valid target: a non-url ref while the workspace slug

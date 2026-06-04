@@ -158,10 +158,16 @@ function makeManualEntryItem(input: string): IssuePickItem {
  *
  * @param getCfg - Accessor for the current extension configuration.
  * @param client - The Linear API client (must implement listIssues / searchIssues).
+ * @param getTeamKeys - Accessor for the effective team-key allowlist (auth-aware
+ *   detection); defaults to the configured `teamKeys`.
+ * @param getSlug - Accessor for the effective workspace slug (configured or
+ *   detected); defaults to the configured `workspaceSlug`.
  */
 export async function goToIssue(
   getCfg: () => LinearLensConfig,
   client: LinearClient,
+  getTeamKeys: () => string[] | undefined = () => getCfg().teamKeys,
+  getSlug: () => string = () => getCfg().workspaceSlug,
 ): Promise<void> {
   try {
     // Honor `linearLens.views.recent.limit` (which the setting's description says
@@ -190,14 +196,14 @@ export async function goToIssue(
       // Use the item's URL when present; otherwise build one from the id.
       let target = item.url;
       if (!target) {
-        const parsed = parseIssueId(item.id, { teamKeys: getCfg().teamKeys });
+        const parsed = parseIssueId(item.id, { teamKeys: getTeamKeys() });
         if (!parsed) {
           void vscode.window.showWarningMessage(
             `Linear Lens: "${item.id}" is not a valid Linear issue ID.`,
           );
           return;
         }
-        const slug = getCfg().workspaceSlug;
+        const slug = getSlug();
         if (!slug) {
           // Prompt to configure the workspace slug.
           const choice = await vscode.window.showWarningMessage(

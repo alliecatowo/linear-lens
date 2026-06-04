@@ -13,8 +13,20 @@ keybindings, views).
 > session grants only `read`. See §2 "Editable" and the per-phase specs
 > `.agent/specs/editable-*.md`.
 
+> **Fast update (this run):** the headline is RUTHLESS SPEED on large/slow Linear workspaces.
+> Hovers, pills, the rail, and the trees now share ONE warm, session-persistent metadata cache;
+> document refs are BATCH-fetched in a single GraphQL request, in-flight fetches are DEDUPED, and
+> every surface reads stale-while-revalidate (instant from cache, refreshed in the background). The
+> gutter decoration is REMOVED. The inline pill defaults OFF. A new GitLens/Error-Lens-style **rail**
+> (end-of-line annotation + overview-ruler ticks) and a lightweight **git-blame hover** are added.
+> Detection is AUTH-AWARE: when signed in we fetch the org's real team keys + workspace slug and use
+> them as the recognition allowlist, so `XYZ-123` (not a real team) is no longer treated as a ref and
+> the "slug not set up" nag disappears once a slug is configured or detected. See §6 and the per-phase
+> specs `.agent/specs/fast-foundation.md` + `.agent/specs/fast-rail.md`.
+
 > Status legend: **Shipped** = in `main` today · **V1.1 / V2 / V3** = earlier planned phases ·
-> **Editable** = the current write-enabled phase · **Future** = explicitly deferred.
+> **Editable** = the prior write-enabled phase · **Fast** = the current performance + refinement
+> phase · **Future** = explicitly deferred.
 
 ---
 
@@ -365,3 +377,79 @@ Full table + JSON in `editable-settings.md §1/§5`.
 5. `invalidate(id)` (not `clearCache()`) after a successful write, then refresh UI/views/detail.
 6. Menus/views gated by `config.linearLens.<feature>.enable` AND `linearLens.authed`, but the
    command STILL re-checks at runtime.
+
+---
+
+## 6. Fast phase — performance + refinement (specs: `.agent/specs/fast-foundation.md`, `.agent/specs/fast-rail.md`)
+
+GOAL: make Linear Lens RUTHLESSLY FAST on a large/slow work Linear, and add two GitLens/Error-Lens-style
+surfaces. Headline: every surface (hover, pill, rail, file/teams/cycle trees) shares ONE warm,
+session-persistent cache; document refs are batch-fetched + deduped + prefetched; reads are
+stale-while-revalidate. Keep it LEAN: extend the existing GraphQL client — NO `@linear/sdk`; pure
+modules stay `vscode`-free + tested; the client never throws.
+
+### 6.1 Performance + caching (foundation — `fast-foundation.md`)
+
+- **Batch fetch:** `fetchIssues(ids: IssueId[])` resolves many refs in ONE GraphQL request via
+  `issues(filter:{ or:[{ team:{key:{eq}}, number:{eq} }, …] })`. `fetchIssue` becomes a 1-element
+  batch (kept for compatibility).
+- **In-flight dedupe:** a `Map<normalized, Promise<IssueMetadata|null>>` so hover + pill + rail + tree
+  never triple-fetch the same id. Batch calls coalesce per-id against the same map.
+- **Persistent cache:** `createLinearClient` takes an injected Memento-like `{ get, set }` backed by
+  `context.workspaceState`. Entries are written through on every fetch and rehydrated on activation, so
+  hovers are warm across sessions (within TTL; stale entries still serve SWR).
+- **Prefetch on open/change (debounced):** `prefetchDocument(refs)` warms the cache for every ref in a
+  document the moment it opens / changes, so the first hover is instant.
+- **Stale-while-revalidate:** `peekIssue` always returns cached metadata (even slightly stale);
+  `fetchIssue(s)` serves cache instantly and refreshes in the background when past TTL.
+- **Lazy activation + syncing pulse:** heavy surfaces (trees) do not fetch lists until visible; a subtle
+  status-bar `$(sync~spin) Linear…` pulse shows during background refresh.
+
+### 6.2 Auth-aware detection (foundation — `fast-foundation.md`)
+
+- **Workspace fetch:** one query for `organization{ urlKey }` + `teams{ nodes{ key id name } }`, cached
+  persistently. Refreshed on sign-in / key set / window reload.
+- **`effectiveTeamKeys()` (sync getter):** the recognition allowlist used by EVERY scan. Precedence:
+  configured `teamKeys` (if non-empty) → detected org team keys (if loaded) → `[]` (zero-config, any
+  `ABC-123`). So `ET-128` hovers but `XYZ-123` (not a real team) is not treated as a ref at all.
+- **Slug auto-detect:** when `linearLens.workspaceSlug` is empty, fall back to the detected
+  `organization.urlKey`. The hover/link "slug not set up" message disappears when a slug (configured OR
+  detected) is available.
+
+### 6.3 UI changes
+
+- **REMOVE the gutter** entirely: `src/decorations/gutter.ts`, the `linearLens.gutter.enable` setting,
+  all `extension.ts` wiring, the `enableGutter` config field, and the `media/gutter-*.svg` assets.
+- **Inline pill default OFF:** `linearLens.inlineStatus.enable` default flips `true → false` (it adds
+  lag); when on it reads the shared cache only (no extra fetch).
+- **Rail (`fast-rail.md`):** a new `src/decorations/rail.ts`.
+  - `linearLens.rail.inline`: `"off" | "activeLine" | "allLines"` (default `"activeLine"`) — a muted
+    end-of-line `after` annotation `<ID> · <state> · <title>`, dim/italic, click → Open details.
+  - `linearLens.rail.overviewRuler`: boolean (default `true`) — status-colored ticks on the scrollbar
+    overview ruler at ref lines. Both read cached metadata (SWR); never block typing.
+- **Blame hover (`fast-rail.md`):** `linearLens.blameHover.enable` (default `true`) — a HoverProvider
+  that blames the hovered line, parses the commit message for a Linear ref (using `effectiveTeamKeys()`),
+  and contributes a LIGHTWEIGHT entry only (`📋 <ID> · View in Linear · Open details`) — NOT the full card.
+
+### 6.4 New / changed settings (`linearLens.*`)
+
+| Setting | Type | Default | Change |
+|---|---|---|---|
+| `inlineStatus.enable` | boolean | `false` | **changed** (was `true`) |
+| `gutter.enable` | — | — | **removed** |
+| `rail.inline` | enum `off`/`activeLine`/`allLines` | `activeLine` | **new** |
+| `rail.overviewRuler` | boolean | `true` | **new** |
+| `blameHover.enable` | boolean | `true` | **new** |
+
+### 6.5 Architecture deltas (fast)
+
+- **Pure (no `vscode`), unit-tested:** `src/linear/batchQuery.ts` (the `issues(filter:{or:[…]})` builder
+  + `fetchIssues` envelope mapper) and `src/linear/workspaceQuery.ts` (org/teams query + mapper). Extend
+  `src/parser.ts` only via callers passing `effectiveTeamKeys()` (no parser signature change).
+- **`vscode` modules:** new `src/detection.ts` (the auth-aware `DetectionService` exposing
+  `effectiveTeamKeys()` + `effectiveSlug()` + `refresh()`), `src/decorations/rail.ts`,
+  `src/providers/blameHoverProvider.ts`, `src/git/blame.ts` (blame via `git blame -L` / Git API). Deltas
+  to `linearClient.ts` (batch + dedupe + persistence + prefetch + SWR), `config.ts`/`types.ts` (settings),
+  `extension.ts` (inject Memento + DetectionService, remove gutter, wire rail/blame/pulse), and EVERY
+  scan consumer switches `cfg.teamKeys` → `detection.effectiveTeamKeys()` (see `fast-foundation.md §7`).
+- **`@linear/sdk` is explicitly NOT added. No AI/agentic features.** The client still NEVER throws.

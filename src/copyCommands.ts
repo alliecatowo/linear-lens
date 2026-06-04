@@ -22,6 +22,11 @@ import type { LinearClient, LinearLensConfig } from "./types";
 export interface CopyCommandDeps {
   /** Returns the current, validated extension configuration. */
   readonly getCfg: () => LinearLensConfig;
+  /**
+   * Returns the effective team-key allowlist (auth-aware detection); `undefined`
+   * for zero-config "match any". Optional; defaults to the configured `teamKeys`.
+   */
+  readonly getTeamKeys?: () => string[] | undefined;
   /** Linear API client (read path; degrades gracefully, never throws). */
   readonly client: LinearClient;
 }
@@ -32,10 +37,10 @@ export interface CopyCommandDeps {
  * normalized id when parseable, the trimmed raw id as a fallback, or `undefined`.
  *
  * @param arg - The loosely-typed command argument.
- * @param cfg - The current resolved configuration (for team-key parsing).
+ * @param teamKeys - The effective team-key allowlist (for team-key parsing).
  * @returns The resolved issue id, or `undefined` when the argument carries none.
  */
-function idFromArg(arg: unknown, cfg: LinearLensConfig): string | undefined {
+function idFromArg(arg: unknown, teamKeys: string[] | undefined): string | undefined {
   let raw: string | undefined;
   if (typeof arg === "string") {
     raw = arg.trim();
@@ -46,7 +51,7 @@ function idFromArg(arg: unknown, cfg: LinearLensConfig): string | undefined {
   if (!raw) {
     return undefined;
   }
-  const parsed = parseIssueId(raw, { teamKeys: cfg.teamKeys });
+  const parsed = parseIssueId(raw, { teamKeys });
   return parsed?.normalized ?? raw;
 }
 
@@ -54,10 +59,14 @@ function idFromArg(arg: unknown, cfg: LinearLensConfig): string | undefined {
  * Resolve the normalized issue id under the active editor's cursor, or
  * `undefined` when there is no editor or no reference at the caret. Never throws.
  *
- * @param cfg - The current resolved configuration (team keys / markers).
+ * @param cfg - The current resolved configuration (markers).
+ * @param teamKeys - The effective team-key allowlist (auth-aware detection).
  * @returns The normalized issue id at the cursor, or `undefined`.
  */
-function idUnderCursor(cfg: LinearLensConfig): string | undefined {
+function idUnderCursor(
+  cfg: LinearLensConfig,
+  teamKeys: string[] | undefined,
+): string | undefined {
   try {
     const editor = vscode.window.activeTextEditor;
     if (!editor) {
@@ -65,7 +74,7 @@ function idUnderCursor(cfg: LinearLensConfig): string | undefined {
     }
     const document = editor.document;
     const refs = scanText(document.getText(), {
-      teamKeys: cfg.teamKeys,
+      teamKeys,
       markers: cfg.markers,
     });
     const offset = document.offsetAt(editor.selection.active);
@@ -88,14 +97,16 @@ export function registerCopyCommands(
   deps: CopyCommandDeps,
 ): void {
   const { getCfg, client } = deps;
+  const getTeamKeys = deps.getTeamKeys ?? (() => getCfg().teamKeys);
 
   const copyIssueMarkdown = vscode.commands.registerCommand(
     "linearLens.copyIssueMarkdown",
     async (arg?: unknown) => {
       const cfg = getCfg();
+      const teamKeys = getTeamKeys();
 
       // 1. Resolve the id: explicit arg → cursor ref → input-box prompt.
-      let id = idFromArg(arg, cfg) ?? idUnderCursor(cfg);
+      let id = idFromArg(arg, teamKeys) ?? idUnderCursor(cfg, teamKeys);
       if (!id) {
         const input = await vscode.window.showInputBox({
           title: "Linear Lens: Copy as Markdown",
@@ -106,7 +117,7 @@ export function registerCopyCommands(
         if (input === undefined) {
           return;
         }
-        const parsed = parseIssueId(input, { teamKeys: cfg.teamKeys });
+        const parsed = parseIssueId(input, { teamKeys });
         if (!parsed) {
           void vscode.window.showWarningMessage(
             `Linear Lens: "${input.trim()}" is not a valid Linear issue id.`,
@@ -116,7 +127,7 @@ export function registerCopyCommands(
         id = parsed.normalized;
       }
 
-      const parsed = parseIssueId(id, { teamKeys: cfg.teamKeys });
+      const parsed = parseIssueId(id, { teamKeys });
       if (!parsed) {
         void vscode.window.showWarningMessage(
           `Linear Lens: "${id}" is not a valid Linear issue id.`,
