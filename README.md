@@ -29,9 +29,11 @@ makes every recognized issue reference actionable:
 
 **Linear Lens links your existing tickets. It does NOT create tickets from your TODOs.**
 
-This is the opposite of "TODO → ticket" tools. Linear Lens never writes to Linear and never
-generates issues from your code. It only ever *connects* references that already point at real
-issues you created in Linear.
+This is the opposite of "TODO → ticket" tools. Linear Lens never generates issues from your
+code, and it never writes to Linear on its own. Scanning only ever *connects* references that
+already point at real issues in Linear. Writes happen only when you run an explicit edit or
+**Create Issue…** command; you can hide all of them with `linearLens.edit.enable`, and
+destructive ones ask first (`linearLens.write.confirmDestructive`).
 
 Because of this, the Problems panel stays quiet and signal-rich:
 
@@ -71,6 +73,9 @@ diagnostics.
   **Linear Lens: Set Personal API Key**. Stored in VS Code's encrypted `SecretStorage`.
 - Sign in via Linear's official *Linear Connect* extension (no OAuth app, no hosted redirect)
   as an alternative OAuth path; both methods **degrade gracefully** when unavailable.
+- **Opt-in editing** — explicit commands to set status, assignee, labels, priority, project,
+  team and cycle, edit blocking relations, or create an issue, plus team-board and active-cycle
+  views. Turn all write actions off with `linearLens.edit.enable`.
 
 ## Supported syntax
 
