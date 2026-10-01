@@ -32,8 +32,9 @@ makes every recognized issue reference actionable:
 This is the opposite of "TODO → ticket" tools. Linear Lens never generates issues from your
 code, and it never writes to Linear on its own. Scanning only ever *connects* references that
 already point at real issues in Linear. Writes happen only when you run an explicit edit or
-**Create Issue…** command; you can hide all of them with `linearLens.edit.enable`, and
-destructive ones ask first (`linearLens.write.confirmDestructive`).
+**Create Issue…** command (or drag a card on the team board). `linearLens.edit.enable`,
+`linearLens.create.enable` and `linearLens.board.enable` hide those actions, and destructive
+ones ask first (`linearLens.write.confirmDestructive`).
 
 Because of this, the Problems panel stays quiet and signal-rich:
 
@@ -75,7 +76,8 @@ diagnostics.
   as an alternative OAuth path; both methods **degrade gracefully** when unavailable.
 - **Opt-in editing** — explicit commands to set status, assignee, labels, priority, project,
   team and cycle, edit blocking relations, or create an issue, plus team-board and active-cycle
-  views. Turn all write actions off with `linearLens.edit.enable`.
+  views. Each surface has its own toggle (`linearLens.edit.enable`, `linearLens.create.enable`,
+  `linearLens.board.enable`), and writes need a personal API key or a write-capable sign-in.
 
 ## Supported syntax
 
