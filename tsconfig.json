@@ -4,6 +4,7 @@
     "target": "ES2022",
     "lib": ["ES2022"],
     "moduleResolution": "node",
+    "ignoreDeprecations": "6.0",
     "rootDir": ".",
     "outDir": "dist",
     "sourceMap": true,

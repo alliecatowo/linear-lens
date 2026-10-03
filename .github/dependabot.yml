@@ -21,3 +21,6 @@ updates:
       update-types:
       - minor
       - patch
+  ignore:
+  # Must stay <= engines.vscode: vsce package refuses a newer @types/vscode.
+  - dependency-name: "@types/vscode"
