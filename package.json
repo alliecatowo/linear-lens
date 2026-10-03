@@ -867,8 +867,22 @@
     "@typescript-eslint/parser": "^8.71.0",
     "@vscode/vsce": "^4.0.0",
     "esbuild": "^0.28.2",
+<<<<<<< HEAD
     "eslint": "^10.11.0",
+||||||| d6472a5
+    "eslint": "^9.17.0",
+=======
+    "eslint": "^9.17.0",
+<<<<<<< HEAD
+    "typescript": "^6.0.3",
+    "vitest": "^2.1.0"
+||||||| f834fff
+>>>>>>> origin/main
     "typescript": "^5.7.0",
     "vitest": "^2.1.0"
+=======
+    "typescript": "^5.7.0",
+    "vitest": "^5.0.2"
+>>>>>>> origin/main
   }
 }
