@@ -1,5 +1,7 @@
 # Linear Lens
 
+[Docs](https://alliecatowo.github.io/linear-lens/) · [Open VSX](https://open-vsx.org/extension/alliecatowo/linear-lens)
+
 Make Linear issue IDs like `ENG-123` clickable, hoverable, and useful inside VS Code and Cursor.
 
 Linear Lens recognizes Linear issue references wherever they appear — in code comments,

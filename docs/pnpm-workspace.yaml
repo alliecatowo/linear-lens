@@ -1,0 +1,4 @@
+# Makes docs/ its own pnpm root, so a root-level pnpm workspace never captures it.
+packages: []
+onlyBuiltDependencies:
+  - esbuild
