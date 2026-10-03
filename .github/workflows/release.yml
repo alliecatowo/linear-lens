@@ -28,7 +28,7 @@ jobs:
       - run: pnpm run lint
       - run: pnpm run test
       - run: pnpm exec vsce package --no-dependencies -o linear-lens.vsix
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: vsix
           path: linear-lens.vsix
@@ -47,7 +47,7 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: 22
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: vsix
       - run: npx --yes ovsx@1.2.0 publish linear-lens.vsix --trusted-publishing --skip-duplicate
@@ -62,7 +62,7 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: 22
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: vsix
       - name: Publish (skipped when VSCE_PAT is not set)
