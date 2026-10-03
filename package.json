@@ -3,8 +3,9 @@
   "displayName": "Linear Lens",
   "description": "Make Linear issue IDs like ENG-123 clickable, hoverable, and useful inside VS Code.",
   "version": "0.1.0",
-  "publisher": "linear-lens",
+  "publisher": "alliecatowo",
   "license": "MIT",
+  "icon": "media/icon.png",
   "repository": {
     "type": "git",
     "url": "https://github.com/alliecatowo/linear-lens.git"

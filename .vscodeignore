@@ -17,3 +17,5 @@ pnpm-lock.yaml
 coverage/**
 .vscode-test/**
 **/.DS_Store
+!media/icon.png
+docs/**
