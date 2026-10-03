@@ -1,0 +1,70 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: jdx/mise-action@v5
+      - run: pnpm install --frozen-lockfile
+      - name: Verify tag matches package.json version
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          pkg="$(node -p "require('./package.json').version")"
+          if [ "v${pkg}" != "${GITHUB_REF_NAME}" ]; then
+            echo "::error::tag ${GITHUB_REF_NAME} does not match package.json version ${pkg}"
+            exit 1
+          fi
+      - run: pnpm run typecheck
+      - run: pnpm run lint
+      - run: pnpm run test
+      - run: pnpm exec vsce package --no-dependencies -o linear-lens.vsix
+      - uses: actions/upload-artifact@v7
+        with:
+          name: vsix
+          path: linear-lens.vsix
+          if-no-files-found: error
+
+  publish-open-vsx:
+    name: Publish to Open VSX
+    needs: package
+    runs-on: ubuntu-latest
+    # Open VSX trusted publishing is bound to this environment name.
+    environment: open-vsx
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      - uses: actions/download-artifact@v8
+        with:
+          name: vsix
+      - run: npx --yes ovsx@1.2.0 publish linear-lens.vsix --trusted-publishing --skip-duplicate
+
+  publish-marketplace:
+    name: Publish to VS Code Marketplace
+    needs: package
+    runs-on: ubuntu-latest
+    env:
+      VSCE_PAT: ${{ secrets.VSCE_PAT }}
+    steps:
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      - uses: actions/download-artifact@v8
+        with:
+          name: vsix
+      - name: Publish (skipped when VSCE_PAT is not set)
+        if: ${{ env.VSCE_PAT != '' }}
+        run: npx --yes @vscode/vsce publish --skip-duplicate --packagePath linear-lens.vsix
