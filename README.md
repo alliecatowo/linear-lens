@@ -9,6 +9,13 @@ commit-message buffers, Markdown, and even your current git branch name — and 
 into rich, clickable links with informative hovers. Stop copy-pasting issue IDs into your
 browser; just click them where you already are.
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/public/screens/scanner-dark.png">
+  <img alt="The Linear Lens scanner: issue references in code are linked, and TODO/FIXME-bound ones are flagged for the Problems panel" src="docs/public/screens/scanner-light.png">
+</picture>
+
+*The extension's own scanner running on sample text; try it live on the [docs site](https://alliecatowo.github.io/linear-lens/).*
+
 ## What it does
 
 Linear Lens **links the tickets you already have**. It scans the text you are reading and
