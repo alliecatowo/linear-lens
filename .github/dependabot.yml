@@ -24,3 +24,8 @@ updates:
   ignore:
   # Must stay <= engines.vscode: vsce package refuses a newer @types/vscode.
   - dependency-name: "@types/vscode"
+  # typescript-eslint does not support TypeScript 7 yet (tracking:
+  # https://github.com/typescript-eslint/typescript-eslint/issues/10940).
+  - dependency-name: typescript
+    versions:
+    - ">=7"
