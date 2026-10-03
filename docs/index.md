@@ -12,6 +12,9 @@ hero:
       text: Install
       link: /guide/install
     - theme: alt
+      text: Open VSX
+      link: https://open-vsx.org/extension/alliecatowo/linear-lens
+    - theme: alt
       text: Features
       link: /guide/features
 features:
